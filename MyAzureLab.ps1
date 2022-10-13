@@ -114,7 +114,7 @@ function New-MyAzureLabNetwork {
     process {
         try {
             Write-PSFMessage -Level Verbose -Message 'Getting home IP'
-            $homeIP = (Invoke-WebRequest -uri "http://ifconfig.me/ip").Content
+            $homeIP = (Invoke-WebRequest -uri "http://ifconfig.me/ip" -UseBasicParsing).Content
             Write-PSFMessage -Level Verbose -Message "Using '$homeIP' as home IP"
         } catch {
             Stop-PSFFunction -Message 'Failed to get home IP' -ErrorRecord $_ -EnableException $EnableException
