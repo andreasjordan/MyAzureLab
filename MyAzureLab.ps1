@@ -56,6 +56,44 @@
 }
 
 
+function Copy-MyAzureLabItem {
+    [CmdletBinding()]
+    Param(
+        [string]$ComputerName,
+        [string]$IPAddress,
+        [PSCredential]$Credential,
+        [string]$Path,
+        [string]$Destination,
+        [switch]$EnableException
+    )
+
+    if ($ComputerName) {
+        $IPAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+        Write-PSFMessage -Level Verbose -Message "Using IP address $IPAddress"
+    }
+
+    $vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_VM"
+
+    if ($vm.OSProfile.WindowsConfiguration) {
+        Stop-PSFFunction -Message "Copying to Windows is currently not supported." -EnableException $EnableException
+        return
+    } elseif ($vm.OSProfile.LinuxConfiguration) {
+        try {
+            Write-PSFMessage -Level Verbose -Message 'Creating session'
+            $sftpSession = New-SFTPSession -Computername $IPAddress -Credential $Credential
+            Write-PSFMessage -Level Verbose -Message 'Sending item'
+            Set-SFTPItem -SFTPSession $sftpSession -Path $Path -Destination $Destination
+            Write-PSFMessage -Level Verbose -Message 'Disconnecting session'
+            $sftpSession.Disconnect()
+        } catch {
+            Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
+        }
+    } else {
+        Stop-PSFFunction -Message "Unknown operating system for computer name $ComputerName" -EnableException $EnableException
+        return
+    }
+}
+
 
 function New-MyAzureLabKeyVault {
     # https://docs.microsoft.com/en-us/azure/virtual-machines/windows/winrm
@@ -347,7 +385,7 @@ function New-MyAzureLabVM {
             }
 
             Write-PSFMessage -Level Verbose -Message 'Creating VM'
-            $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
+            $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig -WarningAction SilentlyContinue  # Suppress warning about future changes
             Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
 
             if ($SourceImage -like 'Windows*' -or $SourceImage -like 'SQLServer*') {
