@@ -71,7 +71,7 @@ $privateAzureAccountParameters = @{
 # Name of resource group and location
 # Will be used by MyAzureLab commands
 $resourceGroupName = 'Docker'
-$location = 'Central India'
+$location = 'North Central US'
 
 
 # Will be used by MyAzureLab commands
@@ -150,18 +150,42 @@ if ($result.ExitStatus -ne 0) {
     throw "Error at installDocker"
 }
 
+Write-PSFMessage -Level Host -Message 'Pulling docker images'
+$images = @(
+    'mcr.microsoft.com/mssql/server:2019-latest'
+    'container-registry.oracle.com/database/express:latest'
+    'mysql:latest'
+    'mariadb:latest'
+    'postgres:latest'
+    'ibmcom/db2:latest'
+    'ibmcom/informix-developer-database:latest'
+)
+foreach ($image in $images) {
+    Write-PSFMessage -Level Host -Message "Pulling docker image $image"
+    $result = Invoke-SSHCommand -SSHSession $session -Command "sudo docker pull --quiet $image" -TimeOut 1800
+    if ($result.ExitStatus -ne 0) {
+        throw "Error at pulling docker image $image"
+    }
+}
+
 Write-PSFMessage -Level Host -Message 'Configuring Environment'
 $configEnvironment = @'
-pwsh <<END_OF_PWSH
-New-Item -Path ~/GitHub -ItemType Directory | Out-Null
+pwsh <<"END_OF_PWSH"
+$ProgressPreference = 'SilentlyContinue'
+# Download GitHub repo with scripts to setup all containers
+$null = New-Item -Path ~/GitHub -ItemType Directory
 Invoke-WebRequest -Uri https://github.com/andreasjordan/PowerShell-for-DBAs/archive/refs/heads/main.zip -OutFile repo.zip -UseBasicParsing
 Expand-Archive -Path repo.zip -DestinationPath ~/GitHub
 Remove-Item -Path repo.zip
 Rename-Item -Path ~/GitHub/PowerShell-for-DBAs-main -NewName PowerShell-for-DBAs
-New-Item -Path ~/NuGet -ItemType Directory | Out-Null
-New-Item -Path ~/Software -ItemType Directory | Out-Null
+# Install PowerShell module dbatools for connection to SQL Server
 Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
 Install-Module -Name PSFramework
+# Download NuGet packages for connection to other database systems
+$null = New-Item -Path ~/NuGet -ItemType Directory
+foreach ($package in 'Oracle.ManagedDataAccess.Core', 'MySql.Data', 'Npgsql', 'Net.IBM.Data.Db2-lnx', 'IBM.Data.DB2.Core-lnx') { if (-not (Test-Path -Path ~/NuGet/$package)) { Invoke-WebRequest -Uri https://www.nuget.org/api/v2/package/$package -OutFile package.zip -UseBasicParsing ; Expand-Archive -Path package.zip -DestinationPath ~/NuGet/$package ; Remove-Item -Path package.zip } }
+# Create directory for additional software
+$null = New-Item -Path ~/Software -ItemType Directory
 END_OF_PWSH
 '@
 $result = Invoke-SSHCommand -SSHSession $session -Command $configEnvironment
@@ -169,18 +193,27 @@ if ($result.ExitStatus -ne 0) {
     throw "Error at configEnvironment"
 }
 
-<# The following still needs testing:
+Write-PSFMessage -Level Host -Message 'Copying additional software'
+$copyParams = @{
+    ComputerName = 'DOCKER'
+    Credential   = $credential
+    Path         = '..\PowerShell-for-DBAs\Software\INFO_CLT_SDK_LNX_X86_4.50.FC8.tar'
+    Destination  = "/home/$($credential.UserName)/Software"
+}
+Copy-MyAzureLabItem @copyParams
 
-$runDockerScript = @'
-export USE_SUDO=YES
-pwsh <<END_OF_PWSH
-Set-Location -Path ./GitHub/PowerShell-for-DBAs/PowerShell/
-.\SetupServerWithDocker.ps1 -DBMS SQLServer, Oracle, MySQL, PostgreSQL
-END_OF_PWSH
+#pwsh -c "./SetupServerWithDocker.ps1 -DBMS SQLServer, Oracle, MySQL, MariaDB, PostgreSQL"
+#pwsh -c "./SetupServerWithDocker.ps1 -DBMS Db2, Informix"
+Write-PSFMessage -Level Host -Message 'Creating container'
+$createContainer = @'
+export USE_SUDO=YES && \
+cd ~/GitHub/PowerShell-for-DBAs/PowerShell/ && \
+pwsh -c "./SetupServerWithDocker.ps1 -DBMS Db2, Informix"
 '@
-$result = Invoke-SSHCommand -SSHSession $session -Command $runDockerScript -ShowStandardOutputStream -ShowErrorOutputStream -TimeOut 3600
-
-#>
+$result = Invoke-SSHCommand -SSHSession $session -Command $createContainer -TimeOut 3600 -ShowStandardOutputStream -ShowErrorOutputStream
+if ($result.ExitStatus -ne 0) {
+    throw "Error at createContainer"
+}
 
 Write-PSFMessage -Level Host -Message 'Creating virtual maschine ADMIN'
 New-MyAzureLabVM -ComputerName ADMIN -SourceImage Windows10 -NoDomain
