@@ -14,7 +14,7 @@ $PSDefaultParameterValues = @{ "*-MyAzureLab*:EnableException" = $true }
 
 This Skript will setup my lab with Azure virtual maschines for the multi database environment based on docker.
 
-It takes about ???.
+It takes about an hour.
 
 It will connect to Azure with
 * a given acount name (`$accountId`)
@@ -41,16 +41,14 @@ A [network security group](https://docs.microsoft.com/en-us/azure/virtual-networ
 * rules to allow communication from my home address to the network for RDP (port 3389), SSH (port 22) and WinRM (port 5986)
 
 A set of [virtual maschines](https://docs.microsoft.com/en-us/azure/virtual-machines/):
-* All with VM size "Standard_B2s"
 * A server with
-  * the name "DOCKER"
+  * the name "MULTIDB"
   * Linux Ubuntu 22.04
   * Docker
   * PowerShell
 * A workstation with
-  * the name "ADMIN"
+  * the name "CLIENT"
   * Windows 10
-  * Oracle Client for ODP.NET installed
   * to be the only maschine to RDP in and do the lab work from there
 
 #>
@@ -70,7 +68,7 @@ $privateAzureAccountParameters = @{
 
 # Name of resource group and location
 # Will be used by MyAzureLab commands
-$resourceGroupName = 'Docker'
+$resourceGroupName = 'MultiDB'
 $location = 'North Central US'
 
 
@@ -111,14 +109,14 @@ Write-PSFMessage -Level Host -Message 'Creating network and security group'
 New-MyAzureLabNetwork
 
 
-# Part 3: Setting up virtual maschines DOCKER and ADMIN (10 minutes)
+# Part 3: Setting up virtual maschines MULTIDB and CLIENT
 # https://azureprice.net/
 
 # In case I need to recreate: Remove-MyAzureLabVM -ComputerName DOCKER
 Write-PSFMessage -Level Host -Message 'Creating virtual maschine DOCKER'
-New-MyAzureLabVM -ComputerName DOCKER -SourceImage Ubuntu22 -VMSize Standard_E4ads_v5 -NoDomain
+New-MyAzureLabVM -ComputerName MULTIDB -SourceImage Ubuntu22 -VMSize Standard_E4ads_v5 -NoDomain
 
-$session = New-MyAzureLabSession -ComputerName DOCKER -Credential $credential
+$session = New-MyAzureLabSession -ComputerName MULTIDB -Credential $credential
 
 Write-PSFMessage -Level Host -Message 'Installing PowerShell'
 $installPowerShell = @'
@@ -195,7 +193,7 @@ if ($result.ExitStatus -ne 0) {
 
 Write-PSFMessage -Level Host -Message 'Copying additional software'
 $copyParams = @{
-    ComputerName = 'DOCKER'
+    ComputerName = 'MULTIDB'
     Credential   = $credential
     Path         = '..\PowerShell-for-DBAs\Software\INFO_CLT_SDK_LNX_X86_4.50.FC8.tar'
     Destination  = "/home/$($credential.UserName)/Software"
@@ -208,22 +206,22 @@ Write-PSFMessage -Level Host -Message 'Creating container'
 $createContainer = @'
 export USE_SUDO=YES && \
 cd ~/GitHub/PowerShell-for-DBAs/PowerShell/ && \
-pwsh -c "./SetupServerWithDocker.ps1 -DBMS Db2, Informix"
+pwsh -c "./SetupServerWithDocker.ps1"
 '@
 $result = Invoke-SSHCommand -SSHSession $session -Command $createContainer -TimeOut 3600 -ShowStandardOutputStream -ShowErrorOutputStream
 if ($result.ExitStatus -ne 0) {
     throw "Error at createContainer"
 }
 
-Write-PSFMessage -Level Host -Message 'Creating virtual maschine ADMIN'
-New-MyAzureLabVM -ComputerName ADMIN -SourceImage Windows10 -NoDomain
+Write-PSFMessage -Level Host -Message 'Creating virtual maschine CLIENT'
+New-MyAzureLabVM -ComputerName CLIENT -SourceImage Windows10 -NoDomain
 
 Write-PSFMessage -Level Host -Message 'Finished'
 
 
-# Part 4: Setting up ADMIN maschine ...
+# Part 4: Setting up CLIENT maschine ...
 <#
-$ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "ADMIN_PublicIP").IpAddress
+$ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "CLIENT_PublicIP").IpAddress
 mstsc.exe /v:$ipAddress /w:1920 /h:1200 /prompt
 
 # Execute in an admin PowerShell:
@@ -236,21 +234,28 @@ Install-Module -Name dbatools
 Invoke-Expression -Command ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
 choco install powershell-core notepadplusplus git vscode vscode-powershell --confirm --limitoutput --no-progress
 
+# Execute in normal PowerShell:
+$ErrorActionPreference = 'Stop'
+$null = New-Item -Path C:\GitHub -ItemType Directory
+Set-Location -Path C:\GitHub
+git clone https://github.com/andreasjordan/PowerShell-for-DBAs.git
+
 #>
+
 
 
 <#
 
 # Start:
-$null = Start-AzVM -ResourceGroupName $resourceGroupName -Name ADMIN_VM
-$null = Start-AzVM -ResourceGroupName $resourceGroupName -Name DOCKER_VM
+$null = Start-AzVM -ResourceGroupName $resourceGroupName -Name CLIENT_VM
+$null = Start-AzVM -ResourceGroupName $resourceGroupName -Name MULTIDB_VM
 
 # Connect:
-$ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "ADMIN_PublicIP").IpAddress
+$ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "CLIENT_PublicIP").IpAddress
 mstsc.exe /v:$ipAddress /w:1920 /h:1200 /prompt
 
 # Stop:
-$null = Stop-AzVM -ResourceGroupName $resourceGroupName -Name ADMIN_VM -Force
-$null = Stop-AzVM -ResourceGroupName $resourceGroupName -Name DOCKER_VM -Force
+$null = Stop-AzVM -ResourceGroupName $resourceGroupName -Name CLIENT_VM -Force
+$null = Stop-AzVM -ResourceGroupName $resourceGroupName -Name MULTIDB_VM -Force
 
 #>
