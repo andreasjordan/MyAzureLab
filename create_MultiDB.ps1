@@ -109,7 +109,7 @@ Write-PSFMessage -Level Host -Message 'Creating network and security group'
 New-MyAzureLabNetwork
 
 
-# Part 3: Setting up virtual maschines MULTIDB and CLIENT
+# Part 3: Setting up virtual maschine MULTIDB
 # https://azureprice.net/
 
 # In case I need to recreate: Remove-MyAzureLabVM -ComputerName MULTIDB
@@ -213,41 +213,109 @@ if ($result.ExitStatus -ne 0) {
     throw "Error at createContainer"
 }
 
+
+
+# Part 4: Setting up virtual maschine CLIENT
+# https://azureprice.net/
+
+# In case I need to recreate: Remove-MyAzureLabVM -ComputerName CLIENT
 Write-PSFMessage -Level Host -Message 'Creating virtual maschine CLIENT'
-# Currently I have problems to create the PSSession - so I skip this part as it is not needed at the moment.
-New-MyAzureLabVM -ComputerName CLIENT -SourceImage Windows10 -NoSession
+New-MyAzureLabVM -ComputerName CLIENT -SourceImage Windows10 -NoDomain
+
+# Move all the needed files to the VM.
+# Comment out those you do not need and change the fileSource as needed.
+$psSession = New-MyAzureLabSession -ComputerName CLIENT -Credential $credential
+$softwareLocation = '~\Software'
+$softwareLocation = Invoke-Command -Session $psSession -ScriptBlock { 
+    if (-not (Test-Path -Path $using:softwareLocation)) { 
+        $null = New-Item -Path $using:softwareLocation -ItemType Directory 
+    } 
+    (Resolve-Path -Path $using:softwareLocation).Path
+}
+$files = @(
+    'WINDOWS.X64_193000_client.zip'     # Oracle client 19c
+    'dcoraclefree.exe'                  # Devart dotConnect for Oracle 10.0 Express 
+    'mysql-connector-net-8.0.30.msi'    # MySQL Connector/NET 8.0.30
+    'dcmysqlfree.exe'                   # Devart dotConnect for MySQL 9.0 Express
+    'dcpostgresqlfree.exe'              # Devart dotConnect for PostgreSQL 8.0 Express
+    'vcredist_x64.exe'                  # Visual C++ Redistributable Packages for Visual Studio 2013 - needed for NuGet packages for Db2 and Informix 
+    'INFO_CLT_SDK_WIN_64_4.50.FC8.zip'  # Informix client SDK for Windows
+)
+<# Copy files from local folder:
+$fileSource = '..\PowerShell-for-DBAs\Software'
+foreach ($file in $files) {
+    Copy-Item -Path $fileSource\$file -Destination $softwareLocation -ToSession $psSession
+}
+#>
+# Copy files from data disk:
+Write-PSFMessage -Level Host -Message 'Mounting data disk to virtual maschine CLIENT'
+$vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name CLIENT_VM
+$dataDisk = Get-AzDisk -ResourceGroupName DataDisk -DiskName datadisk
+$vm = Add-AzVMDataDisk -VM $vm -Name datadisk -CreateOption Attach -ManagedDiskId $dataDisk.Id -Lun 1
+$result = Update-AzVM -ResourceGroupName $resourceGroupName -VM $vm
+Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
+Invoke-Command -Session $psSession -ScriptBlock { 
+    Get-Partition -Volume (Get-Volume -FileSystemLabel Daten) | Set-Partition -NewDriveLetter S
+}
+
+Write-PSFMessage -Level Host -Message 'Copying files'
+foreach ($file in $files) {
+    Invoke-Command -Session $psSession -ScriptBlock {
+        Copy-Item -Path S:\Software\$using:file -Destination $using:softwareLocation
+    }
+}
+
+Write-PSFMessage -Level Host -Message 'Unmounting data disk from virtual maschine CLIENT'
+$vm = Remove-AzVMDataDisk -VM $vm -DataDiskNames datadisk 
+$result = Update-AzVM -ResourceGroupName $resourceGroupName -VM $vm
+Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
+
+
+Write-PSFMessage -Level Host -Message 'Installing Visual C++ Redistributable Packages for Visual Studio 2013'
+Invoke-Command -Session $psSession -ScriptBlock { 
+    Start-Process -FilePath "$using:softwareLocation\vcredist_x64.exe" -ArgumentList '/install', '/quiet', '/norestart' -Wait
+}
+
+Write-PSFMessage -Level Host -Message 'Setting up PSGallery and installing needed modules'
+Invoke-Command -Session $psSession -ScriptBlock { 
+    $ErrorActionPreference = 'Stop'
+    $null = Install-PackageProvider -Name Nuget -Force
+    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    Install-Module -Name PSFramework
+    Install-Module -Name Posh-SSH
+    Install-Module -Name dbatools
+}
+
+<# Does not work yet (The module 'Microsoft.PowerShell.Archive' could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Archive'.)
+Write-PSFMessage -Level Host -Message 'Setting up choco and installing needed software'
+Invoke-Command -Session $psSession -ScriptBlock { 
+    $ErrorActionPreference = 'Stop'
+    Invoke-Expression -Command ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+    choco install powershell-core notepadplusplus git vscode vscode-powershell --confirm --limitoutput --no-progress
+}
+
+Write-PSFMessage -Level Host -Message 'Setting up git'
+Invoke-Command -Session $psSession -ScriptBlock { 
+    $ErrorActionPreference = 'Stop'
+    $null = New-Item -Path ~\GitHub -ItemType Directory
+    Set-Location -Path ~\GitHub
+    git clone https://github.com/andreasjordan/PowerShell-for-DBAs.git
+}
+
+#>
+
+$psSession | Remove-PSSession
 
 Write-PSFMessage -Level Host -Message 'Finished'
 
 
-# Part 4: Setting up CLIENT maschine ...
+# Part 5: Connecting to CLIENT maschine ...
 <#
+
 $ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "CLIENT_PublicIP").IpAddress
 mstsc.exe /v:$ipAddress /w:1920 /h:1200 /prompt
 
-# Execute in an admin PowerShell:
-$ErrorActionPreference = 'Stop'
-$null = Install-PackageProvider -Name Nuget -Force
-Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-Install-Module -Name PSFramework
-Install-Module -Name Posh-SSH
-Install-Module -Name dbatools
-Invoke-Expression -Command ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-choco install powershell-core notepadplusplus git vscode vscode-powershell --confirm --limitoutput --no-progress
-
-# Execute in normal PowerShell:
-$ErrorActionPreference = 'Stop'
-$null = New-Item -Path ~\GitHub -ItemType Directory
-Set-Location -Path ~\GitHub
-git clone https://github.com/andreasjordan/PowerShell-for-DBAs.git
-
-
-# For the Db2 and Informix NuGet package:
-# Download and install the Visual C++ Redistributable Packages for Visual Studio 2013
-
-
 #>
-
 
 
 <#
