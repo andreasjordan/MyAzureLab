@@ -214,7 +214,8 @@ if ($result.ExitStatus -ne 0) {
 }
 
 Write-PSFMessage -Level Host -Message 'Creating virtual maschine CLIENT'
-New-MyAzureLabVM -ComputerName CLIENT -SourceImage Windows10 -NoDomain
+# Currently I have problems to create the PSSession - so I skip this part as it is not needed at the moment.
+New-MyAzureLabVM -ComputerName CLIENT -SourceImage Windows10 -NoSession
 
 Write-PSFMessage -Level Host -Message 'Finished'
 
@@ -236,9 +237,14 @@ choco install powershell-core notepadplusplus git vscode vscode-powershell --con
 
 # Execute in normal PowerShell:
 $ErrorActionPreference = 'Stop'
-$null = New-Item -Path C:\GitHub -ItemType Directory
-Set-Location -Path C:\GitHub
+$null = New-Item -Path ~\GitHub -ItemType Directory
+Set-Location -Path ~\GitHub
 git clone https://github.com/andreasjordan/PowerShell-for-DBAs.git
+
+
+# For the Db2 and Informix NuGet package:
+# Download and install the Visual C++ Redistributable Packages for Visual Studio 2013
+
 
 #>
 
