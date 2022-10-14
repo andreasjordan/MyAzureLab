@@ -241,6 +241,7 @@ function New-MyAzureLabVM {
         [string]$OrganizationalUnit,
         [ScriptBlock]$ScriptBlock,
         [switch]$NoDomain,
+        [switch]$NoSession,
         [switch]$EnableException
     )
 
@@ -389,6 +390,11 @@ function New-MyAzureLabVM {
             $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig -WarningAction SilentlyContinue  # Suppress warning about future changes
             Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
 
+            if ($NoSession) {
+                Write-PSFMessage -Level Verbose -Message 'Returning without creating a session'
+                return
+            }
+            
             if ($SourceImage -like 'Windows*' -or $SourceImage -like 'SQLServer*') {
                 Write-PSFMessage -Level Verbose -Message 'Creating PSSession'
                 $session = New-MyAzureLabSession -ComputerName $ComputerName -Credential $credential -EnableException
