@@ -112,8 +112,8 @@ New-MyAzureLabNetwork
 # Part 3: Setting up virtual maschines MULTIDB and CLIENT
 # https://azureprice.net/
 
-# In case I need to recreate: Remove-MyAzureLabVM -ComputerName DOCKER
-Write-PSFMessage -Level Host -Message 'Creating virtual maschine DOCKER'
+# In case I need to recreate: Remove-MyAzureLabVM -ComputerName MULTIDB
+Write-PSFMessage -Level Host -Message 'Creating virtual maschine MULTIDB'
 New-MyAzureLabVM -ComputerName MULTIDB -SourceImage Ubuntu22 -VMSize Standard_E4ads_v5 -NoDomain
 
 $session = New-MyAzureLabSession -ComputerName MULTIDB -Credential $credential
