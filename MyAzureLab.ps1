@@ -46,12 +46,13 @@
             }
             break
         } catch {
-            Write-PSFMessage -Level Verbose -Message "Failed with: $_"
+            $lastError = $_
+            Write-PSFMessage -Level Verbose -Message "Failed with: $lastError"
             Start-Sleep -Seconds 15
         }
     }
     if ((Get-Date) -ge $waitUntil) {
-        Stop-PSFFunction -Message 'Failed' -EnableException $EnableException
+        Stop-PSFFunction -Message "Operation timed out. Last error message: $lastError" -EnableException $EnableException
     }
 }
 
