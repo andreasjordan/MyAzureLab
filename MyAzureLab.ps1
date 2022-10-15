@@ -648,7 +648,7 @@ function Add-MyAzureLabSQLSources {
                     Disable-WSManCredSSP -Role Client
                 }
 
-                Write-PSFMessage -Level Verbose -Message "Removing virtual maschine SQL$Version"
+                Write-PSFMessage -Level Verbose -Message "Removing virtual maschine SQL$ver"
                 Remove-MyAzureLabVM -ComputerName "SQL$ver" -EnableException
             }
 
