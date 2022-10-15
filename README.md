@@ -7,7 +7,17 @@ This holds all my wrapper commands that help me to setup parts of the environmen
 
 ## MyAzureLabEnvironment.ps1
 
-This holds environment variables with my personl settings. That's why this part of .gitignore and you have to change that file on your local system.
+This holds environment variables with my personl settings. That's why it's part of .gitignore and you have to setup this file on your local system with this content:
+
+```
+$Env:MyAzureAccountId    = 'my@mydom.com'
+$Env:MyAzureSubscription = 'The name of the subscription'
+
+$Env:MyAzureDomainName      = 'test.local'        # First part in upper cases will be used as NetBiosName
+$Env:MyAzureInitialAdmin    = 'aSecretName'       # Will be used when creating the virtual maschines
+$Env:MyAzureInitialPassword = 'aSecretPassword'   # Will be used when creating the virtual maschines and for the certificate
+$Env:MyAzurePassword        = 'aSimplerPassword'  # Will be used when creating additional users
+```
 
 ## create_MultiDB.ps1
 
