@@ -176,7 +176,7 @@ Invoke-WebRequest -Uri https://github.com/andreasjordan/PowerShell-for-DBAs/arch
 Expand-Archive -Path repo.zip -DestinationPath ~/GitHub
 Remove-Item -Path repo.zip
 Rename-Item -Path ~/GitHub/PowerShell-for-DBAs-main -NewName PowerShell-for-DBAs
-# Install PowerShell module dbatools for connection to SQL Server
+# Install PowerShell module PSGallery for logging
 Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
 Install-Module -Name PSFramework
 # Download NuGet packages for connection to other database systems
