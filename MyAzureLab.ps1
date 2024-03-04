@@ -473,7 +473,7 @@ function New-MyAzureLabVM {
                 WinRMCertificateUrl = $certificateUrl
                 ProvisionVMAgent    = $true
             }
-        } elseif ($SourceImage -like 'Ubuntu*') {
+        } elseif ($SourceImage -like 'Ubuntu*' -or $SourceImage -like 'AlmaLinux*') {
             $operatingSystemParam = @{
                 ComputerName        = $ComputerName
                 Linux               = $true
