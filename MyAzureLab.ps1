@@ -144,16 +144,12 @@ function global:Start-MyAzureLabRDP {
     }
 }
 
-function Invoke-MyAzureLabSSHCommand {
+function New-MyAzureLabSSHSession {
     [CmdletBinding()]
     Param(
         [string]$ComputerName,
         [string]$IPAddress,
         [PSCredential]$Credential,
-        [string[]]$Command,
-        [int]$TimeOut = 9999,
-        [int]$SuccessExitStatus = 0,
-        [switch]$ShowOutput,
         [switch]$EnableException
     )
     
@@ -170,28 +166,56 @@ function Invoke-MyAzureLabSSHCommand {
             WarningAction = 'SilentlyContinue'
             ErrorAction   = 'Stop'
         }
-        $sshSession = New-SSHSession @sshSessionParams
+        New-SSHSession @sshSessionParams
     } catch {
-        Stop-PSFFunction -Message "Error while creating ssh session: $_" -EnableException $EnableException
+        Stop-PSFFunction -Message "Error while creating ssh session to $($IPAddress): $_" -EnableException $EnableException
         return
     }
+}
+
+function Invoke-MyAzureLabSSHCommand {
+    [CmdletBinding()]
+    Param(
+        [string]$ComputerName,
+        [string]$IPAddress,
+        [PSCredential]$Credential,
+        [string[]]$Command,
+        [int]$TimeOut = 9999,
+        [int]$SuccessExitStatus = 0,
+        [switch]$ShowOutput,
+        [switch]$EnableException
+    )
     
+    try {
+        $sshSession = New-MyAzureLabSSHSession -ComputerName $ComputerName -IPAddress $IPAddress -Credential $Credential -EnableException:$EnableException
+    } catch {
+        Stop-PSFFunction -Message "Error while creating ssh session to $($IPAddress): $_" -EnableException $EnableException
+        return
+    }
+
     $returnValue = $true
     foreach ($cmd in $Command) {
-        $sshCommandParams = @{
-            SSHSession               = $sshSession
-#            Command                  = '. ~/.bash_profile && ' + $cmd
-            Command                  = $cmd
-            EnsureConnection         = $true
-            TimeOut                  = $TimeOut
-            ShowStandardOutputStream = $ShowOutput
-            ShowErrorOutputStream    = $ShowOutput
-            ErrorAction              = 'Stop'
-        }
-        $sshResult = Invoke-SSHCommand @sshCommandParams
-        if ($sshResult.ExitStatus -ne $SuccessExitStatus) {
-            $returnValue = $false
-            break
+        if ($cmd -match '^nohup') {
+            Write-PSFMessage -Level Verbose -Message "Using stream for: $cmd"
+            $sshStream = New-SSHShellStream -SSHSession $sshSession
+            Invoke-SSHStreamShellCommand -ShellStream $sshStream -Command $cmd
+            Write-PSFMessage -Level Verbose -Message "Closing stream"
+            $sshStream.Close()
+        } else {
+            $sshCommandParams = @{
+                SSHSession               = $sshSession
+                Command                  = $cmd
+                EnsureConnection         = $true
+                TimeOut                  = $TimeOut
+                ShowStandardOutputStream = $ShowOutput
+                ShowErrorOutputStream    = $ShowOutput
+                ErrorAction              = 'Stop'
+            }
+            $sshResult = Invoke-SSHCommand @sshCommandParams
+            if ($sshResult.ExitStatus -ne $SuccessExitStatus) {
+                $returnValue = $false
+                break
+            }
         }
     }
     $null = $sshSession | Remove-SSHSession
@@ -227,7 +251,7 @@ function Get-MyAzureLabSFTPItem {
         }
         $sftpSession = New-SFTPSession @sftpSessionParams
     } catch {
-        Stop-PSFFunction -Message "Error while creating sftp session: $_" -EnableException $EnableException
+        Stop-PSFFunction -Message "Error while creating sftp session to $($IPAddress): $_" -EnableException $EnableException
         return
     }
 
@@ -267,7 +291,7 @@ function Set-MyAzureLabSFTPItem {
         }
         $sftpSession = New-SFTPSession @sftpSessionParams
     } catch {
-        Stop-PSFFunction -Message "Error while creating sftp session: $_" -EnableException $EnableException
+        Stop-PSFFunction -Message "Error while creating sftp session to $($IPAddress): $_" -EnableException $EnableException
         return
     }
 
@@ -595,6 +619,50 @@ function New-MyAzureLabVM {
             Write-PSFMessage -Level Verbose -Message 'Creating VM'
             $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig -WarningAction SilentlyContinue 6> $null  # Suppress warning about future changes / Suppress info about Azure Trusted Launch VMs
             Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
+
+            if ($SourceImage -match 'Ubuntu') {
+                Write-PSFMessage -Level Verbose -Message 'Testing SSH connection'
+                $waitUntil = [datetime]::Now.AddMinutes(5)
+                while ([datetime]::Now -lt $waitUntil) {
+                    try {
+                        $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential 
+                        $null = $session | Remove-SSHSession
+                        break
+                    } catch {
+                        Write-PSFMessage -Level Verbose -Message "Failed: $_"
+                        Start-Sleep -Seconds 10
+                    }
+                }
+                Write-PSFMessage -Level Verbose -Message 'Updating packages'
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo apt-get update'
+                Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
+                $installPwshCommand = @(
+                    'sudo apt-get -y install wget apt-transport-https software-properties-common'
+                    'source /etc/os-release && wget -q https://packages.microsoft.com/config/ubuntu/$VERSION_ID/packages-microsoft-prod.deb'
+                    'sudo dpkg -i packages-microsoft-prod.deb'
+                    'rm packages-microsoft-prod.deb'
+                    'sudo apt-get update'
+                    'sudo apt-get -y install powershell'
+                )
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command $installPwshCommand
+            } elseif ($SourceImage -match 'AlmaLinux') {
+                Write-PSFMessage -Level Verbose -Message 'Testing SSH connection'
+                $waitUntil = [datetime]::Now.AddMinutes(5)
+                while ([datetime]::Now -lt $waitUntil) {
+                    try {
+                        $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential 
+                        $null = $session | Remove-SSHSession
+                        break
+                    } catch {
+                        Write-PSFMessage -Level Verbose -Message "Failed: $_"
+                        Start-Sleep -Seconds 10
+                    }
+                }
+                Write-PSFMessage -Level Verbose -Message 'Updating packages'
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y update'
+                Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y install https://github.com/PowerShell/PowerShell/releases/download/v7.4.1/powershell-7.4.1-1.rh.x86_64.rpm'
+            }
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
         }
@@ -644,7 +712,7 @@ function Invoke-MyAzureLabPart1 {
             }
 
             Write-PSFMessage -Level Host -Message 'Getting HomeIP'
-            $homeIP = (Invoke-WebRequest -uri "http://ifconfig.me/ip" -UseBasicParsing).Content
+            $homeIP = (Invoke-WebRequest -Uri "http://ipinfo.io/json" -UseBasicParsing | ConvertFrom-Json).ip
             if ($homeIP -notmatch '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}') {
                 Stop-PSFFunction -Message 'Failed to get IPv4 home IP. Stopping.' -Target $homeIP -EnableException $EnableException
             }
@@ -663,13 +731,6 @@ function Invoke-MyAzureLabPart1 {
             #####
 
             # See https://azureprice.net/ to get a suitable vm size 
-
-            # In case something fails and a maschine needs to be rebuild:
-            # Remove-MyAzureLabVM -ComputerName WINDC01
-
-            Write-PSFMessage -Level Host -Message 'Creating virtual maschine STATUS'
-            New-MyAzureLabVM -ComputerName STATUS -SourceImage Ubuntu22 -VMSize Standard_B2ms -Credential $initCredential
-
             foreach ($computerName in $Config.Keys) {
                 Write-PSFMessage -Level Host -Message "Creating virtual maschine $computerName"
                 New-MyAzureLabVM -ComputerName $computerName -SourceImage $config.$computerName.SourceImage -VMSize $config.$computerName.VMSize -Credential $initCredential
@@ -679,20 +740,33 @@ function Invoke-MyAzureLabPart1 {
             Write-PSFMessage -Level Host -Message 'Step 3: Setting up deployment monitoring'
             #####
 
+            Write-PSFMessage -Level Host -Message 'Creating virtual maschine STATUS'
+            New-MyAzureLabVM -ComputerName STATUS -SourceImage Ubuntu22 -VMSize Standard_B2s -Credential $initCredential
             Set-MyAzureLabSFTPItem -ComputerName STATUS -Credential $initCredential -Path $PSScriptRoot\status.py, $PSScriptRoot\status.html -Destination "/home/$($initCredential.UserName)" -Force
             $installStatusApi = @(
-                'sudo apt-get update'
                 'sudo apt-get install -y python3-pip'
                 'pip install -q fastapi "uvicorn[standard]"'
                 "echo '@reboot /usr/bin/python3 /home/$($initCredential.UserName)/status.py &' > /tmp/crontab"
                 'crontab /tmp/crontab'
                 'rm /tmp/crontab'
+                "nohup /usr/bin/python3 /home/$($initCredential.UserName)/status.py &"
             )
-            Invoke-MyAzureLabSSHCommand -ComputerName STATUS -Credential $initCredential -Command $installStatusApi
-            $result = Restart-AzVM -ResourceGroupName $resourceGroupName -Name STATUS_VM
-            if ($result.Status -ne 'Succeeded') {
-                Stop-PSFFunction -Message 'Restart failed' -Target $result -EnableException $EnableException
-            }
+            $null = Invoke-MyAzureLabSSHCommand -ComputerName STATUS -Credential $initCredential -Command $installStatusApi
+
+            <#
+            Write-PSFMessage -Level Host -Message 'Creating virtual maschine STATUS2'
+            New-MyAzureLabVM -ComputerName STATUS2 -SourceImage AlmaLinux8 -VMSize Standard_B2s -Credential $initCredential
+            Set-MyAzureLabSFTPItem -ComputerName STATUS2 -Credential $initCredential -Path $PSScriptRoot\status.py, $PSScriptRoot\status.html -Destination "/home/$($initCredential.UserName)" -Force
+            $installStatusApi = @(
+                'sudo dnf -y install python39'
+                'pip3.9 install -q pytz jinja2 fastapi "uvicorn[standard]"'
+                "echo '@reboot /usr/bin/python3.9 /home/$($initCredential.UserName)/status.py &' > /tmp/crontab"
+                'crontab /tmp/crontab'
+                'rm /tmp/crontab'
+                "nohup /usr/bin/python3.9 /home/$($initCredential.UserName)/status.py &"
+            )
+            $null = Invoke-MyAzureLabSSHCommand -ComputerName STATUS2 -Credential $initCredential -Command $installStatusApi
+            #>
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
         }
