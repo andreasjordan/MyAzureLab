@@ -29,7 +29,7 @@ if (-not (Get-Command -Name choco -ErrorAction SilentlyContinue)) {
     try {
         Send-Status -Message 'Starting to install chocolatey'
 
-        $null = Invoke-Expression -Command ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+        $null = Invoke-Expression -Command ([System.Net.WebClient]::new().DownloadString('https://chocolatey.org/install.ps1'))
 
         Send-Status -Message 'Finished to install chocolatey'
         Restart-Computer -Force
@@ -39,53 +39,72 @@ if (-not (Get-Command -Name choco -ErrorAction SilentlyContinue)) {
             Send-Status -Message "Rebooting to install chocolatey because: $_"
             Restart-Computer -Force
             return
-        }
-        Send-Status -Message "Failed to install chocolatey: $_"
-        return
-    }
-}
+        } elseif ($_ -match 'Forbidden') {
+            # For more info see: https://docs.chocolatey.org/en-us/troubleshooting#im-getting-a-403-unauthorized-issue-when-attempting-to-use-the-community-package-repository
+            # Fallback: use NuGet package from nuget.org for installation
+            try {
+                Send-Status -Message 'Starting to install chocolatey from NuGet'
 
-$installedPackages = choco list | Select-Object -Skip 1 | Select-Object -SkipLast 1 | ForEach-Object -Process { $_.split(' ')[0] }
-$rebootNeeded = $false
-foreach ($package in $config.Packages) {
-    if ($installedPackages -notcontains $package) {
-        try {
-            Send-Status -Message "Starting to install chocolatey package $package"
-    
-            $installResult = choco install $package --confirm --limitoutput --no-progress
-            if ($installResult -match 'Warnings:') {
-                Send-Status -Message 'Chocolatey generated warnings'
-            }
-            $info = $installResult -match 'Chocolatey installed (\d+)/(\d+) packages' | Select-Object -First 1
-            if ($info -match 'Chocolatey installed (\d+)/(\d+) packages') {
-                if ($Matches[1] -ne $Matches[2]) {
-                    Send-Status -Message "Chocolatey only installed $($Matches[1]) of $($Matches[2]) packages"
-                    $installResult | Add-Content -Path $PSScriptRoot\Chocolatey.txt
-                }
-            } else {
-                Send-Status -Message "Failed to install chocolatey package $package"
-                $installResult | Add-Content -Path $PSScriptRoot\Chocolatey.txt
+                [System.Net.WebClient]::new().DownloadFile('https://www.nuget.org/api/v2/package/chocolatey', "$PSScriptRoot\chocolatey.zip")
+                Expand-Archive -Path $PSScriptRoot\chocolatey.zip -DestinationPath $PSScriptRoot\chocolatey
+                Unblock-File -Path $PSScriptRoot\chocolatey\tools\chocolateyInstall.ps1
+                & $PSScriptRoot\chocolatey\tools\chocolateyInstall.ps1
+
+                Send-Status -Message 'Finished to install chocolatey from NuGet'
+            } catch {
+                Send-Status -Message "Failed to install chocolatey from NuGet: $_"
                 return
             }
-
-            if ($package -eq 'sql-server-management-studio') {
-                Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft SQL Server Tools 19\SQL Server Management Studio 19.lnk' -Destination C:\Users\Public\Desktop
-            }
-
-            if ($package -eq 'sql-server-management-studio', 'git') {
-                $rebootNeeded = $true
-            }
-
-            Send-Status -Message "Finished to install chocolatey package $package"
-        } catch {
-            Send-Status -Message "Failed to install chocolatey package $package"
+        } else {
+            Send-Status -Message "Failed to install chocolatey: $_"
             return
         }
     }
 }
-if ($rebootNeeded) {
-    Restart-Computer -Force
-    return
+
+if (Get-Command -Name choco -ErrorAction SilentlyContinue) {
+    $installedPackages = choco list | Select-Object -Skip 1 | Select-Object -SkipLast 1 | ForEach-Object -Process { $_.split(' ')[0] }
+    $rebootNeeded = $false
+    foreach ($package in $config.Packages) {
+        if ($installedPackages -notcontains $package) {
+            try {
+                Send-Status -Message "Starting to install chocolatey package $package"
+        
+                $installResult = choco install $package --confirm --limitoutput --no-progress
+                if ($installResult -match 'Warnings:') {
+                    Send-Status -Message 'Chocolatey generated warnings'
+                }
+                $info = $installResult -match 'Chocolatey installed (\d+)/(\d+) packages' | Select-Object -First 1
+                if ($info -match 'Chocolatey installed (\d+)/(\d+) packages') {
+                    if ($Matches[1] -ne $Matches[2]) {
+                        Send-Status -Message "Chocolatey only installed $($Matches[1]) of $($Matches[2]) packages"
+                        $installResult | Add-Content -Path $PSScriptRoot\Chocolatey.txt
+                    }
+                } else {
+                    Send-Status -Message "Failed to install chocolatey package $package"
+                    $installResult | Add-Content -Path $PSScriptRoot\Chocolatey.txt
+                    return
+                }
+
+                if ($package -eq 'sql-server-management-studio') {
+                    Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft SQL Server Tools 19\SQL Server Management Studio 19.lnk' -Destination C:\Users\Public\Desktop
+                }
+
+                if ($package -eq 'sql-server-management-studio', 'git') {
+                    $rebootNeeded = $true
+                }
+
+                Send-Status -Message "Finished to install chocolatey package $package"
+            } catch {
+                Send-Status -Message "Failed to install chocolatey package $package"
+                return
+            }
+        }
+    }
+    if ($rebootNeeded) {
+        Restart-Computer -Force
+        return
+    }
 }
 
 if ((Get-PackageProvider).Name -notcontains 'NuGet') {
@@ -213,15 +232,18 @@ if ($env:COMPUTERNAME -eq 'DC') {
 
     if ((Get-ADUser -Filter *).Name -notcontains $config.Domain.AdminName) {
         try {
-            Send-Status -Message 'Starting to create admin'
+            Send-Status -Message 'Starting to create admins'
     
             $adminPassword = ConvertTo-SecureString -String $config.Domain.AdminPassword -AsPlainText -Force
             New-ADUser -Name $config.Domain.AdminName -AccountPassword $adminPassword -Enabled $true
             Add-ADGroupMember -Identity 'Domain Admins' -Members Admin
-            
-            Send-Status -Message 'Finished to create admin'
+
+            # Member of the group Administrators on the SQL Server maschine
+            New-ADUser -Name LocalAdmin -AccountPassword $adminPassword -Enabled $true
+
+            Send-Status -Message 'Finished to create admins'
         } catch {
-            Send-Status -Message "Failed to create admin: $_"
+            Send-Status -Message "Failed to create admins: $_"
             return
         }
     }

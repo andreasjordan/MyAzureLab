@@ -54,7 +54,7 @@ while ( $true ) {
     try {
         Send-Status -Message 'Starting to configure users und CredSSP'
 
-        Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
+        Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\LocalAdmin"
         $null = Enable-WSManCredSSP -Role Server -Force
         'y' | winrm quickconfig
 

@@ -38,7 +38,9 @@ while ( $true ) {
     try {
         Send-Status -Message 'Starting to configure users und CredSSP'
 
-        Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
+        #Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
+        Add-LocalGroupMember -Group 'Remote Desktop Users' -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
+        Add-LocalGroupMember -Group 'Remote Management Users' -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
         foreach ($computer in $config.DelegateComputer) {
             $null = Enable-WSManCredSSP -Role Client -DelegateComputer "$computer.$($config.Domain.Name)", $computer -Force
         }
@@ -49,7 +51,7 @@ while ( $true ) {
         return
     }
 
-if (-not (Test-Path -Path C:\GitHub\dataplat\dbatools)) {
+if ((Get-Command -Name git -ErrorAction SilentlyContinue) -and -not (Test-Path -Path C:\GitHub\dataplat\dbatools)) {
     try {
         Send-Status -Message 'Starting to clone dbatools repository'
 

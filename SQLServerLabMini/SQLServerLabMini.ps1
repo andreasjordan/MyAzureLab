@@ -25,7 +25,7 @@ $PSDefaultParameterValues['*-PSF*:EnableException'] = $true
 # Name of resource group and location
 # Will be used by MyAzureLab commands (so these are global variables)
 $global:resourceGroupName = 'SQLServerLabMini'
-$global:location          = 'West Europe'
+$global:location          = 'North Central US'
 
 # Name and password of the initial account
 $initUser     = 'initialAdmin'     # Will be used when creating the virtual maschines
@@ -48,7 +48,7 @@ $domainConfig = [PSCustomObject]@{
 $config = @{
     DC = [PSCustomObject]@{
         SourceImage  = 'WindowsServer2022'
-        VMSize       = 'Standard_B2ms'
+        VMSize       = 'Standard_B2s'
         Script_A     = "$scriptPath\Deployment_A.ps1"
         Script_B     = "$scriptPath\Deployment_B_DC.ps1"
         Status       = $statusConfig
@@ -66,7 +66,7 @@ $config = @{
     }
     CLIENT = [PSCustomObject]@{
         SourceImage  = 'WindowsServer2022'
-        VMSize       = 'Standard_B2ms'
+        VMSize       = 'Standard_B2s'
         Script_A     = "$scriptPath\Deployment_A.ps1"
         Script_B     = "$scriptPath\Deployment_B_CLIENT.ps1"
         Script_C     = "$scriptPath\Deployment_C_CLIENT.ps1"
@@ -98,7 +98,7 @@ $config = @{
     }
     SQL2022 = [PSCustomObject]@{
         SourceImage   = 'SQLServer2022'
-        VMSize        = 'Standard_B2ms'
+        VMSize        = 'Standard_B2s'
         Script_A      = "$scriptPath\Deployment_A.ps1"
         Script_B      = "$scriptPath\Deployment_B_SQL.ps1"
         ScriptBlock_C = "$scriptPath\Deployment_C_SQL20xx.ps1"
@@ -125,7 +125,15 @@ $global:adminCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\$($d
 if ($GetStatus) {
     if (Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue) {
         Write-PSFMessage -Level Host -Message "Getting status for VMs in resource group $resourceGroupName."
-        Get-AzVM -ResourceGroupName $resourceGroupName -Status | Format-Table -Property Name, PowerState
+        $vms = Get-AzVM -ResourceGroupName $resourceGroupName -Status
+        $info = foreach ($vm in $vms) {
+            [PSCustomObject]@{
+                Name       = $vm.Name
+                PowerState = $vm.PowerState
+                IPAddress  = $(if ($vm.PowerState -eq 'VM running') { (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($vm.Name -replace '_VM$', '')_PublicIP").IpAddress })
+            }
+        } 
+        $info | Format-Table
     } else {
         Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName does not exist."
     }
@@ -225,14 +233,17 @@ if ($StartDeployment -or $OnlyDeploymentParts -contains 6) {
     ##########
 
     $session = New-MyAzureLabSession -ComputerName CLIENT -Credential $userCredential
+    Write-PSFMessage -Level Host -Message 'Session ist started'
     Invoke-Command -Session $session -ScriptBlock { 
         # We have to wait for the logon of the RDP session to complete
         $target = [datetime]::Now.AddSeconds(15)
         while ([datetime]::Now -lt $target) {
             try {
+                Write-Warning "Starting"
                 $using:userCredential | Export-Clixml -Path $HOME\MyCredential.xml
                 break
             } catch {
+                Write-Warning "Fehler: $_"
                 Start-Sleep -Seconds 1
             }
         }
