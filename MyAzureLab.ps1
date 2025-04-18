@@ -321,32 +321,28 @@ function New-MyAzureLabKeyVault {
             EnabledForTemplateDeployment = $true
             WarningAction                = "SilentlyContinue"  # Suppress warning about future changes
         }
-        $certificateName = "$($resourceGroupName)Certificate"
-        $certificateFilename = "$env:TEMP\$certificateName.pfx"
-        
+
         try {
+            Write-PSFMessage -Level Verbose -Message 'Assigning Key Vault Administrator role'
+            $null = New-AzRoleAssignment -SignInName (Get-AzContext).Account.Id -ResourceGroupName $resourceGroupName -RoleDefinitionName 'Key Vault Administrator'
+
             Write-PSFMessage -Level Verbose -Message 'Creating KeyVault'
             $null = New-AzKeyVault -ResourceGroupName $resourceGroupName -Location $location @keyVaultParam
 
             Write-PSFMessage -Level Verbose -Message 'Creating SelfSignedCertificate'
-            $certificate = New-SelfSignedCertificate -DnsName $certificateName -CertStoreLocation Cert:\CurrentUser\My -KeySpec KeyExchange
-    
-            Write-PSFMessage -Level Verbose -Message 'Exporting PfxCertificate'
-            $null = Export-PfxCertificate -Cert $certificate -FilePath $certificateFilename -Password $Credential.Password
-    
-            Write-PSFMessage -Level Verbose -Message 'Importing KeyVaultCertificate'
-            $null = Import-AzKeyVaultCertificate -VaultName $keyVaultParam.VaultName -Name $certificateName -FilePath $certificateFilename -Password $Credential.Password
+            $certificatePolicy = New-AzKeyVaultCertificatePolicy -SecretContentType "application/x-pkcs12" -SubjectName "CN=lab.local" -IssuerName "Self" -ValidityInMonths 12 -ReuseKeyOnRenewal
+            $null = Add-AzKeyVaultCertificate -VaultName $keyVaultParam.VaultName -Name "$($resourceGroupName.Replace('_',''))Certificate" -CertificatePolicy $certificatePolicy
+            # Waiting for secret to be ready
+            while (1) {
+                try {
+                    $null = Get-AzKeyVaultSecret -VaultName $keyVaultParam.VaultName -Name "$($resourceGroupName.Replace('_',''))Certificate"
+                    break
+                } catch {
+                    Start-Sleep -Seconds 10
+                }
+            }
         } catch {
-            if ($certificate) {
-                Write-PSFMessage -Level Verbose -Message 'Removing certificate'
-                Remove-Item -Path "Cert:\CurrentUser\My\$($certificate.Thumbprint)"
-            }
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
-        } finally {
-            if (Test-Path -Path $certificateFilename) {
-                Write-PSFMessage -Level Verbose -Message 'Removing exported PfxCertificate'
-                Remove-Item -Path $certificateFilename
-            }
         }
     }
 }
@@ -447,10 +443,11 @@ function New-MyAzureLabVM {
     [CmdletBinding()]
     Param(
         [string]$ComputerName,
-        [ValidateSet('WindowsServer2016', 'WindowsServer2019', 'WindowsServer2022', 'Windows10', 'SQLServer2017', 'SQLServer2019', 'SQLServer2022', 'Ubuntu22', 'AlmaLinux8')]
+        [ValidateSet('WindowsServer2016', 'WindowsServer2019', 'WindowsServer2022', 'WindowsServer2025WSL', 'Windows10', 'SQLServer2017', 'SQLServer2019', 'SQLServer2022', 'Ubuntu22', 'AlmaLinux8')]
         [string]$SourceImage,
         [string]$VMSize = "Standard_B2s",
         [PSCredential]$Credential,
+        [switch]$TrustedLaunch,
         [switch]$EnableException
     )
 
@@ -527,6 +524,13 @@ function New-MyAzureLabVM {
                 PublisherName = "MicrosoftWindowsServer"   # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
                 Offer         = "WindowsServer"            # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
                 Skus          = "2022-datacenter"          # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
+                Version       = "latest"
+            }
+        } elseif ($SourceImage -eq 'WindowsServer2025WSL') {
+            $sourceImageParam = @{
+                PublisherName = "MicrosoftWindowsServer"         # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
+                Offer         = "WindowsServer"                  # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
+                Skus          = "2025-datacenter-azure-edition"  # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
             }
         } elseif ($SourceImage -eq 'Windows10') {
@@ -614,6 +618,12 @@ function New-MyAzureLabVM {
             if ($SourceImage -like 'Windows*' -or $SourceImage -like 'SQLServer*') {
                 Write-PSFMessage -Level Verbose -Message 'Adding Secret'
                 $vmConfig = Add-AzVMSecret -VM $vmConfig @secretParam
+            }
+
+            if ($TrustedLaunch) {
+                Write-PSFMessage -Level Verbose -Message 'Adding SecurityProfile'
+                $vmConfig = Set-AzVmSecurityProfile -VM $vmConfig -SecurityType TrustedLaunch
+                $vmConfig = Set-AzVmUefi -VM $vmConfig -EnableVtpm $true -EnableSecureBoot $true 
             }
 
             Write-PSFMessage -Level Verbose -Message 'Creating VM'
@@ -941,10 +951,11 @@ function global:Remove-MyAzureLabResourceGroup {
     process {
         try {
             if (Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue) {
-                Write-PSFMessage -Level Host -Message "Removing resource group $resourceGroupName, key vault and certificate"
+                Write-PSFMessage -Level Host -Message "Removing resource group $resourceGroupName"
                 $null = Remove-AzResourceGroup -Name $resourceGroupName -Force
+                Write-PSFMessage -Level Host -Message "Removing key vault"
                 Get-AzKeyVault -InRemovedState -WarningAction SilentlyContinue | ForEach-Object -Process { Remove-AzKeyVault -VaultName $_.VaultName -Location $_.Location -InRemovedState -Force }
-                Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object Subject -eq "CN=$($resourceGroupName)Certificate" | Remove-Item
+                Write-PSFMessage -Level Host -Message "Finished"
             } else {
                 Write-PSFMessage -Level Host -Message "ResourceGroup $resourceGroupName not found"
             }
@@ -954,3 +965,91 @@ function global:Remove-MyAzureLabResourceGroup {
     }
 }
 
+function global:Get-MyAzureLabNSGRule {
+    [CmdletBinding()]
+    Param (
+        [switch]$EnableException
+    )
+
+    process {
+        try {
+            $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup
+            $nsg.SecurityRules | Format-Table -Property Name, DestinationPortRange, SourceAddressPrefix, Priority
+        } catch {
+            Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
+        }
+    }
+}
+
+function global:Add-MyAzureLabNSGRule {
+    [CmdletBinding()]
+    Param (
+        [int]$Port,
+        [string[]]$IPAddress,
+        [switch]$EnableException
+    )
+
+    process {
+        try {
+            $priority = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup |
+                Select-Object -ExpandProperty SecurityRules |
+                Sort-Object Priority |
+                Select-Object -Last 1 -ExpandProperty Priority
+            $priority++
+            $ruleConfigParams = @{
+                Name                     = "Allow$Port"
+                DestinationPortRange     = $Port
+                SourceAddressPrefix      = $IPAddress
+                Priority                 = $priority
+                Protocol                 = "Tcp"
+                Direction                = "Inbound"
+                SourcePortRange          = "*"
+                DestinationAddressPrefix = "*"
+                Access                   = "Allow"
+            }
+            $null = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup |
+                Add-AzNetworkSecurityRuleConfig @ruleConfigParams |
+                Set-AzNetworkSecurityGroup
+        } catch {
+            Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
+        }
+    }
+}
+
+function global:Set-MyAzureLabNSGRuleIPAddress {
+    [CmdletBinding()]
+    Param (
+        [string[]]$IPAddress,
+        [switch]$EnableException
+    )
+
+    process {
+        try {
+            $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup
+            foreach ($rule in $nsg.SecurityRules) {
+                $rule.SourceAddressPrefix = $IPAddress
+            }
+            $null = $nsg | Set-AzNetworkSecurityGroup
+        } catch {
+            Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
+        }
+    }
+}
+
+function global:Remove-MyAzureLabNSGRule {
+    [CmdletBinding()]
+    Param (
+        [string]$Name,
+        [switch]$EnableException
+    )
+
+    process {
+        try {
+            $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup
+            $null = Remove-AzNetworkSecurityRuleConfig -NetworkSecurityGroup $nsg -Name $Name
+            $null = $nsg | Set-AzNetworkSecurityGroup
+        } catch {
+            Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
+        }
+    }
+}
