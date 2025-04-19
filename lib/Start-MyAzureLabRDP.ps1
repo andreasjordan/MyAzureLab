@@ -1,4 +1,4 @@
-function global:Start-MyAzureLabRDP {
+function Start-MyAzureLabRDP {
     [CmdletBinding()]
     Param (
         [string]$ComputerName,

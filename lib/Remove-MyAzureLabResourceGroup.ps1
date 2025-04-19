@@ -1,4 +1,4 @@
-function global:Remove-MyAzureLabResourceGroup {
+function Remove-MyAzureLabResourceGroup {
     [CmdletBinding()]
     Param (
         [switch]$EnableException

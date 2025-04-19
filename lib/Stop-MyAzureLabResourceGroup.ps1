@@ -1,4 +1,4 @@
-function global:Stop-MyAzureLabResourceGroup {
+function Stop-MyAzureLabResourceGroup {
     [CmdletBinding()]
     Param (
         [switch]$EnableException

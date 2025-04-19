@@ -1,4 +1,4 @@
-function global:Clear-MyAzureLabResourceGroup {
+function Clear-MyAzureLabResourceGroup {
     [CmdletBinding()]
     Param (
         [switch]$EnableException
@@ -11,16 +11,16 @@ function global:Clear-MyAzureLabResourceGroup {
                 foreach ($vm in Get-AzVM -ResourceGroupName $resourceGroupName) {
                     $computerName = $vm.Name -replace '_VM$', ''
                     Write-PSFMessage -Level Host -Message "Removing $computerName"
-                    Remove-MyAzureLabVM -ComputerName $computerName
+                    Remove-MyAzureLabVM -ComputerName $computerName -EnableException
                 }
                 Remove-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup -Force
                 Remove-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Name VirtualNetwork -Force
                 Get-AzKeyVault -ResourceGroupName $resourceGroupName | Remove-AzKeyVault -Force
-                # Only used in private subscription:
-                # $null = Remove-AzResourceGroup -Name $resourceGroupName -Force
-                # Only used in private subscription:
-                # Get-AzKeyVault -InRemovedState -WarningAction SilentlyContinue | ForEach-Object -Process { Remove-AzKeyVault -VaultName $_.VaultName -Location $_.Location -InRemovedState -Force }
-                Get-AzResource -ResourceGroupName $resourceGroupName
+                $resources = Get-AzResource -ResourceGroupName $resourceGroupName
+                if ($resources) {
+                    Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName still containes these resources:"
+                    $resources | Format-Table -Property Name, ResourceType
+                }
             } else {
                 Write-PSFMessage -Level Host -Message "ResourceGroup $resourceGroupName not found"
             }

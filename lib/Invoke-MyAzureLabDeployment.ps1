@@ -11,7 +11,7 @@ function Invoke-MyAzureLabDeployment {
 
     process {
         try {
-            $session = New-MyAzureLabSession -ComputerName $ComputerName -Credential $Credential
+            $session = New-MyAzureLabSession -ComputerName $ComputerName -Credential $Credential -EnableException
             $commandParams = @{
                 Session = $session
             }

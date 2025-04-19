@@ -1,4 +1,4 @@
-function global:Get-MyAzureLabNSGRule {
+function Get-MyAzureLabNSGRule {
     [CmdletBinding()]
     Param (
         [switch]$EnableException

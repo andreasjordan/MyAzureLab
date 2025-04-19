@@ -186,7 +186,7 @@ function New-MyAzureLabVM {
             }
 
             Write-PSFMessage -Level Verbose -Message 'Creating VM'
-            $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig -WarningAction SilentlyContinue 6> $null  # Suppress warning about future changes / Suppress info about Azure Trusted Launch VMs
+            $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
             Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
 
             if ($SourceImage -match 'Ubuntu') {

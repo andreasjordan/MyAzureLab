@@ -1,4 +1,4 @@
-function global:Add-MyAzureLabNSGRule {
+function Add-MyAzureLabNSGRule {
     [CmdletBinding()]
     Param (
         [int]$Port,

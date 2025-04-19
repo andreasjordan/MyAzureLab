@@ -1,4 +1,4 @@
-function global:Start-MyAzureLabResourceGroup {
+function Start-MyAzureLabResourceGroup {
     [CmdletBinding()]
     Param (
         [switch]$EnableException

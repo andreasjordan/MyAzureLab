@@ -33,10 +33,10 @@ function Invoke-MyAzureLabPart1 {
             }
 
             Write-PSFMessage -Level Host -Message 'Creating key vault and certificate'
-            New-MyAzureLabKeyVault -Credential $InitialCredential
+            New-MyAzureLabKeyVault -Credential $InitialCredential -EnableException
 
             Write-PSFMessage -Level Host -Message 'Creating network and security group'
-            New-MyAzureLabNetwork -HomeIP $homeIP
+            New-MyAzureLabNetwork -HomeIP $homeIP -EnableException
 
             #####
             Write-PSFMessage -Level Host -Message 'Step 2: Setting up virtual maschines'
@@ -45,7 +45,7 @@ function Invoke-MyAzureLabPart1 {
             # See https://azureprice.net/ to get a suitable vm size 
             foreach ($computerName in $Config.Keys) {
                 Write-PSFMessage -Level Host -Message "Creating virtual maschine $computerName"
-                New-MyAzureLabVM -ComputerName $computerName -SourceImage $config.$computerName.Azure.SourceImage -VMSize $config.$computerName.Azure.VMSize -Credential $InitialCredential
+                New-MyAzureLabVM -ComputerName $computerName -SourceImage $config.$computerName.Azure.SourceImage -VMSize $config.$computerName.Azure.VMSize -Credential $InitialCredential -EnableException
             }
 
             #####
@@ -53,7 +53,7 @@ function Invoke-MyAzureLabPart1 {
             #####
 
             Write-PSFMessage -Level Host -Message 'Configuring virtual maschine STATUS'
-            Set-MyAzureLabSFTPItem -ComputerName STATUS -Credential $InitialCredential -Path $PSScriptRoot\..\MyLab\status.ps1 -Destination "/home/$($InitialCredential.UserName)" -Force
+            Set-MyAzureLabSFTPItem -ComputerName STATUS -Credential $InitialCredential -Path $PSScriptRoot\..\MyLab\status.ps1 -Destination "/home/$($InitialCredential.UserName)" -Force -EnableException
             $installStatusApi = @(
                 "sudo timedatectl set-timezone $($Config.STATUS.Timezone)"
                 "echo '@reboot sudo pwsh /home/$($InitialCredential.UserName)/status.ps1 &' > /tmp/crontab"
@@ -61,7 +61,7 @@ function Invoke-MyAzureLabPart1 {
                 'rm /tmp/crontab'
                 "nohup sudo pwsh /home/$($InitialCredential.UserName)/status.ps1 &"
             )
-            $null = Invoke-MyAzureLabSSHCommand -ComputerName STATUS -Credential $InitialCredential -Command $installStatusApi
+            $null = Invoke-MyAzureLabSSHCommand -ComputerName STATUS -Credential $InitialCredential -Command $installStatusApi -EnableException
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
         }

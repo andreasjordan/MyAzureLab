@@ -56,6 +56,9 @@ if ($context) {
     }
 }
 
+$homeIP = (Invoke-WebRequest -Uri "http://ipinfo.io/json" -UseBasicParsing | ConvertFrom-Json).ip
+Write-PSFMessage -Level Host -Message "`$homeIP is set to $homeIP"
+
 foreach ($file in (Get-ChildItem -Path $PSScriptRoot\lib\*-*.ps1)) {
     . $file.FullName
 }

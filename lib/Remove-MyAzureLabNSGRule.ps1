@@ -1,4 +1,4 @@
-function global:Remove-MyAzureLabNSGRule {
+function Remove-MyAzureLabNSGRule {
     [CmdletBinding()]
     Param (
         [string]$Name,

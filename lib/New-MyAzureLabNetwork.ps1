@@ -18,7 +18,6 @@ function New-MyAzureLabNetwork {
         $virtualNetworkSubnetConfigParam = @{
             Name          = "Default"
             AddressPrefix = "10.0.0.0/24"
-            WarningAction = "SilentlyContinue"  # Suppress warning about future changes
         }
         $networkSecurityGroupParam = @{
             Name = "NetworkSecurityGroup"
