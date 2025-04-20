@@ -133,7 +133,7 @@ try {
     Send-Status -Message 'Starting to install tools'
 
     'Install-DbaFirstResponderKit'
-    $null = Install-DbaFirstResponderKit -SqlInstance $server -OnlyScript Install-Core-Blitz-With-Query-Store.sql
+    $null = Install-DbaFirstResponderKit -SqlInstance $server -OnlyScript Install-All-Scripts.sql
     'Install-DbaMaintenanceSolution'
     $null = Install-DbaMaintenanceSolution -SqlInstance $server -Database master -BackupLocation \\fs\Backup -CleanupTime 3 -LogToTable -InstallJobs
     'Install-DbaWhoIsActive'
@@ -193,6 +193,22 @@ try {
     Send-Status -Message 'Finished to backup sample databases'
 } catch {
     Send-Status -Message "Failed to backup sample databases: $_"
+    return
+}
+
+try {
+    Send-Status -Message 'Starting to configure system for dbatools tests'
+
+    Install-Module -Name Pester -Force -SkipPublisherCheck -MaximumVersion 4.99
+    Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -MaximumVersion 1.18.2
+    Install-Module -Name dbatools.library -Force
+    
+    Set-Location -Path C:\GitHub
+    git clone --quiet https://github.com/dataplat/appveyor-lab.git
+    
+    Send-Status -Message 'Finished to configure system for dbatools tests'
+} catch {
+    Send-Status -Message "Failed to configure system for dbatools tests: $_"
     return
 }
 

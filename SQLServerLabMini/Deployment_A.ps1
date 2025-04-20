@@ -87,7 +87,7 @@ if (Get-Command -Name choco -ErrorAction SilentlyContinue) {
                 }
 
                 if ($package -eq 'sql-server-management-studio') {
-                    Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft SQL Server Tools 19\SQL Server Management Studio 19.lnk' -Destination C:\Users\Public\Desktop
+                    Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft SQL Server Tools*\SQL Server Management Studio*.lnk' -Destination C:\Users\Public\Desktop
                 }
 
                 if ($package -eq 'sql-server-management-studio', 'git') {
