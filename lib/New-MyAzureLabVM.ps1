@@ -2,7 +2,7 @@ function New-MyAzureLabVM {
     [CmdletBinding()]
     Param(
         [string]$ComputerName,
-        [ValidateSet('WindowsServer2016', 'WindowsServer2019', 'WindowsServer2022', 'WindowsServer2025WSL', 'Windows10', 'SQLServer2017', 'SQLServer2019', 'SQLServer2022', 'Ubuntu22', 'AlmaLinux8')]
+        [ValidateSet('WindowsServer2022', 'WindowsServer2025', 'Windows11', 'SQLServer2019', 'SQLServer2022', 'Ubuntu22', 'AlmaLinux8')]
         [string]$SourceImage,
         [string]$VMSize = "Standard_B2s",
         [PSCredential]$Credential,
@@ -64,53 +64,32 @@ function New-MyAzureLabVM {
             Stop-PSFFunction -Message "Unknown operating system for source image $SourceImage" -EnableException $EnableException
             return
         }
-        if ($SourceImage -eq 'WindowsServer2016') {
+        if ($SourceImage -eq 'WindowsServer2022') {
             $sourceImageParam = @{
-                PublisherName = "MicrosoftWindowsServer"   # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
-                Offer         = "WindowsServer"            # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
-                Skus          = "2016-Datacenter"          # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
+                PublisherName = "MicrosoftWindowsServer"         # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
+                Offer         = "WindowsServer"                  # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
+                Skus          = "2022-datacenter-azure-edition"  # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
             }
-        } elseif ($SourceImage -eq 'WindowsServer2019') {
-            $sourceImageParam = @{
-                PublisherName = "MicrosoftWindowsServer"   # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
-                Offer         = "WindowsServer"            # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
-                Skus          = "2019-Datacenter"          # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
-                Version       = "latest"
-            }
-        } elseif ($SourceImage -eq 'WindowsServer2022') {
-            $sourceImageParam = @{
-                PublisherName = "MicrosoftWindowsServer"   # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
-                Offer         = "WindowsServer"            # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
-                Skus          = "2022-datacenter"          # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
-                Version       = "latest"
-            }
-        } elseif ($SourceImage -eq 'WindowsServer2025WSL') {
+        } elseif ($SourceImage -eq 'WindowsServer2025') {
             $sourceImageParam = @{
                 PublisherName = "MicrosoftWindowsServer"         # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
                 Offer         = "WindowsServer"                  # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
                 Skus          = "2025-datacenter-azure-edition"  # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
             }
-        } elseif ($SourceImage -eq 'Windows10') {
+        } elseif ($SourceImage -eq 'Windows11') {
             $sourceImageParam = @{
                 PublisherName = "MicrosoftWindowsDesktop"  # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
-                Offer         = "Windows-10"               # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
-                Skus          = "win10-22h2-pro"           # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
-                Version       = "latest"
-            }
-        } elseif ($SourceImage -eq 'SQLServer2017') {
-            $sourceImageParam = @{
-                PublisherName = "MicrosoftSQLServer"       # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
-                Offer         = "SQL2017-WS2016"           # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
-                Skus          = "SQLDEV"                   # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
+                Offer         = "Windows-11"               # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
+                Skus          = "win11-24h2-pro"           # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
             }
         } elseif ($SourceImage -eq 'SQLServer2019') {
             $sourceImageParam = @{
                 PublisherName = "MicrosoftSQLServer"       # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
-                Offer         = "sql2019-ws2019"           # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
-                Skus          = "sqldev"                   # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
+                Offer         = "sql2019-ws2022"           # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
+                Skus          = "sqldev-gen2"              # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
             }
         } elseif ($SourceImage -eq 'SQLServer2022') {
@@ -194,7 +173,7 @@ function New-MyAzureLabVM {
                 $waitUntil = [datetime]::Now.AddMinutes(5)
                 while ([datetime]::Now -lt $waitUntil) {
                     try {
-                        $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential 
+                        $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential -EnableException
                         $null = $session | Remove-SSHSession
                         break
                     } catch {
@@ -203,7 +182,7 @@ function New-MyAzureLabVM {
                     }
                 }
                 Write-PSFMessage -Level Verbose -Message 'Updating packages'
-                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo apt-get update'
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo apt-get update' -EnableException
                 Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
                 $installPwshCommand = @(
                     'sudo apt-get -y install wget apt-transport-https software-properties-common'
@@ -213,13 +192,13 @@ function New-MyAzureLabVM {
                     'sudo apt-get update'
                     'sudo apt-get -y install powershell'
                 )
-                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command $installPwshCommand
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command $installPwshCommand -EnableException
             } elseif ($SourceImage -match 'AlmaLinux') {
                 Write-PSFMessage -Level Verbose -Message 'Testing SSH connection'
                 $waitUntil = [datetime]::Now.AddMinutes(5)
                 while ([datetime]::Now -lt $waitUntil) {
                     try {
-                        $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential 
+                        $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential -EnableException
                         $null = $session | Remove-SSHSession
                         break
                     } catch {
@@ -228,9 +207,9 @@ function New-MyAzureLabVM {
                     }
                 }
                 Write-PSFMessage -Level Verbose -Message 'Updating packages'
-                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y update'
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y update' -EnableException
                 Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
-                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y install https://github.com/PowerShell/PowerShell/releases/download/v7.4.1/powershell-7.4.1-1.rh.x86_64.rpm'
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y install https://github.com/PowerShell/PowerShell/releases/download/v7.4.1/powershell-7.4.1-1.rh.x86_64.rpm' -EnableException
             }
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException

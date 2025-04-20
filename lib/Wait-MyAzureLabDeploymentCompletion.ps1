@@ -10,10 +10,10 @@ function Wait-MyAzureLabDeploymentCompletion {
         try {
             $statusApiPublicIP = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "STATUS_PublicIP").IpAddress
             while (1) {
-                $data = (Invoke-WebRequest -Uri "http://$($statusApiPublicIP):8000/status").Content | ConvertFrom-Json
+                $data = (Invoke-WebRequest -Uri "http://$statusApiPublicIP/status").Content | ConvertFrom-Json
                 $data = $data | Where-Object { [datetime]$_.Time -gt $OnlyStatusAfter }  
                 Clear-Host
-                Write-Host "Results from http://$($statusApiPublicIP):8000"
+                Write-Host "Results from http://$statusApiPublicIP"
                 $data | Sort-Object Time | Format-Table -Property IP, Host, Time, Message -Wrap
                 if ($WaitFor -eq ($data.Message | Select-Object -Unique)) {
                     break

@@ -1,4 +1,4 @@
-function global:New-MyAzureLabSession {
+function New-MyAzureLabSession {
     [CmdletBinding()]
     Param(
         [string]$ComputerName,

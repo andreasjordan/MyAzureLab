@@ -1,4 +1,4 @@
-function global:Set-MyAzureLabNSGRuleIPAddress {
+function Set-MyAzureLabNSGRuleIPAddress {
     [CmdletBinding()]
     Param (
         [string[]]$IPAddress,

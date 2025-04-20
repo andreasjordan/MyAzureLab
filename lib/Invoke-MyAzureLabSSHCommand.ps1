@@ -12,7 +12,7 @@ function Invoke-MyAzureLabSSHCommand {
     )
     
     try {
-        $sshSession = New-MyAzureLabSSHSession -ComputerName $ComputerName -IPAddress $IPAddress -Credential $Credential -EnableException:$EnableException
+        $sshSession = New-MyAzureLabSSHSession -ComputerName $ComputerName -IPAddress $IPAddress -Credential $Credential -EnableException
     } catch {
         Stop-PSFFunction -Message "Error while creating ssh session to $($IPAddress): $_" -EnableException $EnableException
         return
