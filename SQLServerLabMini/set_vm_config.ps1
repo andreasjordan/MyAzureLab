@@ -65,11 +65,12 @@ $vmConfig = @{
     }
     SQL2022 = [PSCustomObject]@{
         SourceImage   = 'SQLServer2022'
-        VMSize        = 'Standard_B4s_v2'
+#        VMSize        = 'Standard_B4s_v2'
+        VMSize        = 'Standard_E4s_v6'
         Script_A      = "$PSScriptRoot\Deployment_A.ps1"
         Script_B      = "$PSScriptRoot\Deployment_B_SQL.ps1"
-#        ScriptBlock_C = "$PSScriptRoot\Deployment_C_SQL20xx.ps1"
         Script_C      = "$PSScriptRoot\Deployment_C_SQL20xx.ps1"
+        ScriptBlock_C = "$PSScriptRoot\Deployment_C_SQL20xx_ScriptBlock.ps1"
         Status        = $statusConfig
         Domain        = $domainConfig 
         Packages      = @(

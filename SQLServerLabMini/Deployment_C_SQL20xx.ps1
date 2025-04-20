@@ -46,21 +46,6 @@ try {
 }
 
 try {
-    Send-Status -Message 'Starting to configure sql server instance'
-
-    # Add the domain group SQLAdmins to the sysadmin server role to get access to the default instance as a domain user
-    $sql = @(
-        'CREATE LOGIN [DOM\SQLAdmins] FROM WINDOWS'
-        'ALTER SERVER ROLE sysadmin ADD MEMBER [DOM\SQLAdmins]'
-    )
-    $null = $sql | sqlcmd
-    Send-Status -Message 'Finished to configure sql server instance'
-} catch {
-    Send-Status -Message "Failed to configure sql server instance: $_"
-    return
-}
-
-try {
     Send-Status -Message 'Starting to configure system for dbatools tests'
 
     Install-Module -Name Pester -Force -SkipPublisherCheck -MaximumVersion 4.99
@@ -79,6 +64,17 @@ try {
     Send-Status -Message 'Finished to configure system for dbatools tests'
 } catch {
     Send-Status -Message "Failed to configure system for dbatools tests: $_"
+    return
+}
+
+try {
+    Send-Status -Message 'Starting to remove startup task'
+
+    Unregister-ScheduledTask -TaskName DeploymentAtStartup -Confirm:$false
+
+    Send-Status -Message 'Finished to remove startup task'
+} catch {
+    Send-Status -Message "Failed to remove startup task: $_"
     return
 }
 

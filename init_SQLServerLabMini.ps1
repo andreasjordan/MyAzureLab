@@ -32,11 +32,19 @@ Start-MyAzureLabResourceGroup
 
 Stop-MyAzureLabResourceGroup
 
+# I try to use the "normal" account for most of the tests and developments:
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $userCredential
 
-Start-MyAzureLabRDP -ComputerName SERVER -Credential $initCredential
+# On the SQL2022 only the domain admin is able to connect via RDP:
+Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $adminCredential
 
-$psSession = New-MyAzureLabSession -ComputerName SERVER -Credential $initCredential
+
+# Just in case:
+$psSession = New-MyAzureLabSession -ComputerName CLIENT -Credential $userCredential
 $psSession | Remove-PSSession
+
+
+
 
 
 
@@ -57,7 +65,6 @@ foreach ($computerName in $vmConfig.Keys) {
     Write-PSFMessage -Level Host -Message "Creating virtual maschine $computerName"
     New-MyAzureLabVM -ComputerName $computerName -SourceImage $vmConfig.$computerName.SourceImage -VMSize $vmConfig.$computerName.VMSize -Credential $initCredential -TrustedLaunch -EnableException
 }
-
 # The following also sets $statusConfig.Uri and $domainConfig.DCIPAddress
 New-MyAzureLabStatusVM -EnableException
 
@@ -124,9 +131,10 @@ foreach ($computerName in $vmConfig.Keys) {
 }
 Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt
 
-
-
 Remove-MyAzureLabVM -ComputerName STATUS
+
+$deploymentDuration = [datetime]::Now - $deploymentStart
+Write-PSFMessage -Level Host -Message "Finished deployment after $([int]$deploymentDuration.TotalMinutes) minutes"
 
 
 
@@ -162,14 +170,15 @@ Invoke-Command -Session $session -ScriptBlock {
 $session | Remove-PSSession
 
 
-$deploymentDuration = [datetime]::Now - $deploymentStart
-Write-PSFMessage -Level Host -Message "Finished deployment after $([int]$deploymentDuration.TotalMinutes) minutes"
 
 
 
 
 
+# To remove all virtual maschines:
+##################################
 
+Remove-MyAzureLabVM -All
 
 
 
