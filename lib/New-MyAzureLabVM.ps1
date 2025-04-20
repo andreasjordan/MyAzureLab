@@ -2,7 +2,7 @@ function New-MyAzureLabVM {
     [CmdletBinding()]
     Param(
         [string]$ComputerName,
-        [ValidateSet('WindowsServer2022', 'WindowsServer2025', 'Windows11', 'SQLServer2019', 'SQLServer2022', 'Ubuntu22', 'AlmaLinux8')]
+        [ValidateSet('WindowsServer2022', 'WindowsServer2025', 'Windows11', 'SQLServer2019', 'SQLServer2022', 'Ubuntu22', 'Ubuntu24', 'AlmaLinux8', 'AlmaLinux9')]
         [string]$SourceImage,
         [string]$VMSize = "Standard_B2s",
         [PSCredential]$Credential,
@@ -106,11 +106,25 @@ function New-MyAzureLabVM {
                 Skus          = "22_04-lts-gen2"                # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
             }
+        } elseif ($SourceImage -eq 'Ubuntu24') {
+            $sourceImageParam = @{
+                PublisherName = "Canonical"                     # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like Canonical*
+                Offer         = "ubuntu-24_04-lts"              # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
+                Skus          = "server"                        # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
+                Version       = "latest"
+            }
         } elseif ($SourceImage -eq 'AlmaLinux8') {
             $sourceImageParam = @{
                 PublisherName = "almalinux"                     # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like alma*
                 Offer         = "almalinux-x86_64"              # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
                 Skus          = "8-gen2"                        # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
+                Version       = "latest"
+            }
+        } elseif ($SourceImage -eq 'AlmaLinux9') {
+            $sourceImageParam = @{
+                PublisherName = "almalinux"                     # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like alma*
+                Offer         = "almalinux-x86_64"              # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
+                Skus          = "9-gen2"                        # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
             }
         } else {
@@ -209,7 +223,7 @@ function New-MyAzureLabVM {
                 Write-PSFMessage -Level Verbose -Message 'Updating packages'
                 Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y update' -EnableException
                 Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
-                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y install https://github.com/PowerShell/PowerShell/releases/download/v7.4.1/powershell-7.4.1-1.rh.x86_64.rpm' -EnableException
+                Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y install https://github.com/PowerShell/PowerShell/releases/download/v7.5.0/powershell-7.5.0-1.rh.x86_64.rpm' -EnableException
             }
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
