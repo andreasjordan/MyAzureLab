@@ -132,7 +132,7 @@ try {
     Send-Status -Message 'Starting to install tools'
 
     'Install-DbaFirstResponderKit'
-    $null = Install-DbaFirstResponderKit -SqlInstance $server -OnlyScript Install-Core-Blitz-With-Query-Store.sql
+    $null = Install-DbaFirstResponderKit -SqlInstance $server -OnlyScript Install-All-Scripts.sql
     'Install-DbaMaintenanceSolution'
     $null = Install-DbaMaintenanceSolution -SqlInstance $server -Database master -BackupLocation \\fs\Backup -CleanupTime 3 -LogToTable -InstallJobs
     'Install-DbaWhoIsActive'
