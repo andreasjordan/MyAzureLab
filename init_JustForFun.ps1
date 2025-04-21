@@ -12,7 +12,7 @@ $initUser     = 'initialAdmin'     # Will be used when creating the virtual masc
 $initPassword = 'initialP#ssw0rd'  # Will be used when creating the virtual maschines and for the certificate
 $initCredential = [PSCredential]::new($initUser, (ConvertTo-SecureString -String $initPassword -AsPlainText -Force))
 
-# Show state of resource group
+# Show state of the resource group
 Show-MyAzureLabResourceGroupInfo
 
 # Don't do anything else
@@ -20,6 +20,9 @@ break
 
 # To suppress the warnings about breaking changes:
 # Update-AzConfig -DisplayBreakingChangeWarning $false
+
+# To suppress information about cheaper regions:
+# Update-AzConfig -DisplayRegionIdentified $false
 
 
 # Daily tasks if the lab is fully set up:

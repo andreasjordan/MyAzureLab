@@ -15,7 +15,7 @@ $initCredential = [PSCredential]::new($initUser, (ConvertTo-SecureString -String
 # Only used for the STATUS server
 $timezone = 'Europe/Berlin'
 
-# Show state of resource group
+# Show state of the resource group
 Show-MyAzureLabResourceGroupInfo
 
 # Don't do anything else
@@ -23,6 +23,9 @@ break
 
 # To suppress the warnings about breaking changes:
 # Update-AzConfig -DisplayBreakingChangeWarning $false
+
+# To suppress information about cheaper regions:
+# Update-AzConfig -DisplayRegionIdentified $false
 
 
 # Daily tasks if the lab is fully set up:
