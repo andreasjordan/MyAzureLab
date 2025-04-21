@@ -1,6 +1,6 @@
 # MyAzureLab
 
-This repository helps me to setup lab environments in Azure based on PowerShell script.
+This repository helps me to setup lab environments in Azure based on PowerShell scripts.
 
 Most people would do this with Terraform or OpenTofu and Ansible. And yes, these programms have a lot of advantages. But I like the flexibility of PowerShell scripts as I can run only part of them and so build different labs with the same set of scripts.
 
@@ -24,11 +24,6 @@ This holds environment variables with my personl settings. That's why it's part 
 ```
 $Env:MyAzureAccountId    = 'my@mydom.com'
 $Env:MyAzureSubscription = 'The name of the subscription'
-
-$Env:MyAzureDomainName      = 'test.local'        # First part in upper cases will be used as NetBiosName
-$Env:MyAzureInitialAdmin    = 'aSecretName'       # Will be used when creating the virtual maschines
-$Env:MyAzureInitialPassword = 'aSecretPassword'   # Will be used when creating the virtual maschines and for the certificate
-$Env:MyAzurePassword        = 'aSimplerPassword'  # Will be used when creating additional users
 ```
 
 This file is imported by MyAzureLab.ps1 just before connecting to Azure.
