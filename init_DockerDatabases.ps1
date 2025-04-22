@@ -70,6 +70,10 @@ break
 # Daily tasks if the lab is fully set up:
 #########################################
 
+# Import this file as the first task to set all needed variables:
+. .\init_dockerDatabases.ps1
+
+
 Start-MyAzureLabResourceGroup
 
 Stop-MyAzureLabResourceGroup
@@ -84,7 +88,7 @@ $ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name 
 
 
 # Just in case:
-$psSession = New-MyAzureLabSession -ComputerName CLIENT -Credential $userCredential
+$psSession = New-MyAzureLabSession -ComputerName CLIENT -Credential $initCredential
 $psSession | Remove-PSSession
 
 

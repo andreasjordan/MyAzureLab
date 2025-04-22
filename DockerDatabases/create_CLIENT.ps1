@@ -18,10 +18,9 @@ Write-PSFMessage -Level Host -Message 'Setting up choco and installing needed so
 Invoke-Command -Session $psSession -ScriptBlock { 
     $ErrorActionPreference = 'Stop'
 
-    # Because I use a german system locally, I have to set the culture to prevent this error:
+    # Because I use a german system locally, I have to set the UI culture to prevent this error:
     #  The module 'Microsoft.PowerShell.Archive' could not be loaded. For more information, run 'Import-Module Microsoft.PowerShell.Archive'.
     #  Import-LocalizedData: Cannot find the Windows PowerShell data file 'ArchiveResources.psd1' in directory 'C:\Windows\system32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Archive\de-DE\', or in any parent culture directories.
-    [System.Threading.Thread]::CurrentThread.CurrentCulture = 'en-US'
     [System.Threading.Thread]::CurrentThread.CurrentUICulture = 'en-US'
 
     Invoke-Expression -Command ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
