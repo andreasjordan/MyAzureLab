@@ -25,6 +25,14 @@ function Show-MyAzureLabResourceGroupInfo {
                         Set-MyAzureLabNSGRuleIPAddress -IpAddress $homeIP
                     }
                 }
+                $sqlServer = Get-AzSqlServer -ResourceGroupName $resourceGroupName
+                foreach ($sql in $sqlServer) {
+                    $sourceIP = (Get-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $sql.ServerName -Name AllowHome).StartIpAddress
+                    if ($homeIP -ne $sourceIP) {
+                        Write-PSFMessage -Level Host -Message "SQL Server firewall uses source IP $sourceIp which is different from current home IP $homeIP. SQL Server firewall will be updated."
+                        Set-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $sql.ServerName -Name AllowHome -StartIpAddress $homeIP -EndIpAddress $homeIP
+                    }
+                }
             } else {
                 Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName does not contain any resources."
             }
