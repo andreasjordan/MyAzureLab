@@ -232,18 +232,15 @@ if ($env:COMPUTERNAME -eq 'DC') {
 
     if ((Get-ADUser -Filter *).Name -notcontains $config.Domain.AdminName) {
         try {
-            Send-Status -Message 'Starting to create admins'
+            Send-Status -Message 'Starting to create admin'
     
             $adminPassword = ConvertTo-SecureString -String $config.Domain.AdminPassword -AsPlainText -Force
             New-ADUser -Name $config.Domain.AdminName -AccountPassword $adminPassword -Enabled $true
             Add-ADGroupMember -Identity 'Domain Admins' -Members Admin
 
-            # Member of the group Administrators on the SQL Server maschine
-            New-ADUser -Name LocalAdmin -AccountPassword $adminPassword -Enabled $true
-
-            Send-Status -Message 'Finished to create admins'
+            Send-Status -Message 'Finished to create admin'
         } catch {
-            Send-Status -Message "Failed to create admins: $_"
+            Send-Status -Message "Failed to create admin: $_"
             return
         }
     }
@@ -326,22 +323,22 @@ try {
     return
 }
 
-try {
-    Send-Status -Message 'Starting to configure edge browser'
+if (-not (Test-Path -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge)) {
+    try {
+        Send-Status -Message 'Starting to configure edge browser'
 
-    $null = New-Item -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge
-    $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name HideFirstRunExperience -PropertyType DWord -Value 1
-    $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name EditFavoritesEnabled -PropertyType DWord -Value 0
-    $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name NewTabPageLocation -PropertyType String -Value 'https://seminare.ordix.de'
-    Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk' -Destination C:\Users\Public\Desktop
-    
-    Send-Status -Message 'Finished to configure edge browser'
-} catch {
-    Send-Status -Message "Failed to configure edge browser: $_"
-    return
+        $null = New-Item -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge
+        $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name HideFirstRunExperience -PropertyType DWord -Value 1
+        $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name EditFavoritesEnabled -PropertyType DWord -Value 0
+        $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name NewTabPageLocation -PropertyType String -Value 'https://seminare.ordix.de'
+        Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk' -Destination C:\Users\Public\Desktop
+        
+        Send-Status -Message 'Finished to configure edge browser'
+    } catch {
+        Send-Status -Message "Failed to configure edge browser: $_"
+        return
+    }
 }
-
-
 
 try {
     Send-Status -Message 'Starting to remove startup task'

@@ -32,7 +32,6 @@ try {
     $PSDefaultParameterValues['*-Dba*:EnableException'] = $true
     $PSDefaultParameterValues['*-Dba*:Confirm'] = $false
 
-    $winAdminCredential = [PSCredential]::new("$($config.Domain.NetbiosName)\LocalAdmin", (ConvertTo-SecureString -String $config.Domain.AdminPassword -AsPlainText -Force))
     $sqlAdminCredential = [PSCredential]::new("$($config.Domain.NetbiosName)\SQLAdmin", (ConvertTo-SecureString -String $config.Domain.AdminPassword -AsPlainText -Force))
 
     $computerName = ([DbaInstance]$config.SQLServer.SqlInstance).ComputerName
@@ -44,7 +43,7 @@ try {
     $version = [int]$computerName.Replace('SQL', '')
 
     'Getting Services'
-    $services = Get-DbaService -ComputerName $computerName -Credential $winAdminCredential -Type Engine
+    $services = Get-DbaService -ComputerName $computerName -Credential $sqlAdminCredential -Type Engine
     $service = $services | Where-Object { $_.ComputerName -eq $computerName -and $_.InstanceName -eq $instanceName }
     if ($service) {
         Send-Status -Message 'Starting to uninstall SQL Server instance'
@@ -55,7 +54,7 @@ try {
             Path               = '\\fs\Software\SQLServer\ISO'
             Restart            = $true
             EnableException    = $false
-            Credential         = $winAdminCredential
+            Credential         = $sqlAdminCredential
         }
         'Starting Uninstall'
         $result = Install-DbaInstance @instanceParams
@@ -67,7 +66,7 @@ try {
 
         $computerName = ([DbaInstance]$config.SQLServer.SqlInstance).ComputerName
         $instancePath = $service.BinaryPath -replace '"(.*)\\MSSQL\\Binn.*', '$1'
-        Invoke-Command -ComputerName $computerName -ArgumentList $instancePath -Authentication Credssp -Credential $winAdminCredential -ScriptBlock {
+        Invoke-Command -ComputerName $computerName -ArgumentList $instancePath -Authentication Credssp -Credential $sqlAdminCredential -ScriptBlock {
             Param([string]$Path)
             Remove-Item -Path $Path -Recurse -Force
         }
@@ -91,7 +90,7 @@ try {
         UpdateSourcePath   = '\\fs\Software\SQLServer\CU'
         Restart            = $true
         EnableException    = $false
-        Credential         = $winAdminCredential
+        Credential         = $sqlAdminCredential
     }
     'Starting Install'
     $result = Install-DbaInstance @instanceParams
@@ -102,7 +101,7 @@ try {
     }
 
     'New-DbaFirewallRule'
-    $null = New-DbaFirewallRule -SqlInstance $sqlInstance -Credential $winAdminCredential
+    $null = New-DbaFirewallRule -SqlInstance $sqlInstance -Credential $sqlAdminCredential
 
     'Connect-DbaInstance'
     $server = Connect-DbaInstance -SqlInstance $sqlInstance -SqlCredential $sqlAdminCredential -NonPooledConnection
@@ -155,7 +154,7 @@ try {
 
     <#
     'Invoke-Command'
-    Invoke-Command -ComputerName $computerName -ArgumentList $server.DefaultFile -Authentication Credssp -Credential $winAdminCredential -ScriptBlock {
+    Invoke-Command -ComputerName $computerName -ArgumentList $server.DefaultFile -Authentication Credssp -Credential $sqlAdminCredential -ScriptBlock {
         Param([string]$DefaultFile)
         Set-Location -Path $DefaultFile
         $null = & 'C:\Program Files\7-Zip\7z.exe' e \\fs\Software\SQLServer\SampleDatabases\StackOverflow2010.7z *

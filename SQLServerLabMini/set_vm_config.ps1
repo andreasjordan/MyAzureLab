@@ -1,3 +1,5 @@
+# This file should be included from ..\init_SQLServerLabMini.ps1
+
 # Configuration of the target domain
 # Will be used later in this script
 $statusConfig = [PSCustomObject]@{
@@ -12,7 +14,7 @@ $domainConfig = [PSCustomObject]@{
     UserPassword  = 'P#ssw0rd'
     DCIPAddress   = $null        # Will be set during the deployment
 }
-$vmConfig = @{
+$vmConfig = [ordered]@{
     DC = [PSCustomObject]@{
         SourceImage  = 'WindowsServer2022'
         VMSize       = 'Standard_B2s_v2'  # Get-AzComputeResourceSku | Where-Object { $_.Locations -contains $location }  https://azureprice.net/
@@ -90,3 +92,5 @@ $vmConfig = @{
 # These are "global" variables, so that they can be used in other commands
 $userCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\$($domainConfig.UserName)", (ConvertTo-SecureString -String $domainConfig.UserPassword -AsPlainText -Force))
 $adminCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)", (ConvertTo-SecureString -String $domainConfig.AdminPassword -AsPlainText -Force))
+$sqlUserCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\SQLUser", (ConvertTo-SecureString -String $domainConfig.UserPassword -AsPlainText -Force))
+$sqlAdminCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\SQLAdmin", (ConvertTo-SecureString -String $domainConfig.AdminPassword -AsPlainText -Force))

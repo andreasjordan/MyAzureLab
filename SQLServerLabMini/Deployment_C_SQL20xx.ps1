@@ -25,24 +25,27 @@ function Send-Status {
     }
 }
 
-try {
-    Send-Status -Message 'Starting to configure firewall'
+$ruleParams = @{
+    DisplayName = 'SQL Server default instance'
+    Name        = 'SQL Server default instance'
+    Group       = 'SQL Server'
+    Enabled     = 'True'
+    Direction   = 'Inbound'
+    Protocol    = 'TCP'
+    LocalPort   = '1433'
+}
+if (-not (Get-NetFirewallRule -Name $ruleParams.Name -ErrorAction SilentlyContinue)) {
+    try {
+        Send-Status -Message 'Starting to configure firewall'
 
-    # Create firewall rule based on source code of dbatools (https://github.com/dataplat/dbatools/blob/development/public/New-DbaFirewallRule.ps1)
-    $ruleParams = @{
-        DisplayName = 'SQL Server default instance'
-        Name        = 'SQL Server default instance'
-        Group       = 'SQL Server'
-        Enabled     = 'True'
-        Direction   = 'Inbound'
-        Protocol    = 'TCP'
-        LocalPort   = '1433'
+        # Create firewall rule based on source code of dbatools (https://github.com/dataplat/dbatools/blob/development/public/New-DbaFirewallRule.ps1)
+        $null = New-NetFirewallRule @ruleParams
+
+        Send-Status -Message 'Finished to configure firewall'
+    } catch {
+        Send-Status -Message "Failed to configure firewall: $_"
+        return
     }
-    $null = New-NetFirewallRule @ruleParams
-    Send-Status -Message 'Finished to configure firewall'
-} catch {
-    Send-Status -Message "Failed to configure firewall: $_"
-    return
 }
 
 try {
@@ -51,11 +54,13 @@ try {
     Install-Module -Name Pester -Force -SkipPublisherCheck -MaximumVersion 4.99
     Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -MaximumVersion 1.18.2
     Install-Module -Name dbatools.library -Force
-    
-    $null = New-Item -Path C:\GitHub -ItemType Directory
-    Set-Location -Path C:\GitHub
-    git clone --quiet https://github.com/dataplat/dbatools.git
-    git clone --quiet https://github.com/dataplat/appveyor-lab.git
+
+    if (not (Test-Path -Path C:\GitHub)) {
+        $null = New-Item -Path C:\GitHub -ItemType Directory
+        Set-Location -Path C:\GitHub
+        git clone --quiet https://github.com/dataplat/dbatools.git
+        git clone --quiet https://github.com/dataplat/appveyor-lab.git
+    }
     
     Import-Module -Name C:\GitHub\dbatools\dbatools.psd1 -DisableNameChecking
     Import-Module -Name C:\GitHub\dbatools\dbatools.psm1 -DisableNameChecking -Force

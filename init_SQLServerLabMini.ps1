@@ -57,103 +57,39 @@ $psSession | Remove-PSSession
 # Read the configuration
 . .\SQLServerLabMini\set_vm_config.ps1
 
+# Create the VMs
+. .\SQLServerLabMini\create_VMs.ps1
 
-# To keep track of the duration
-$deploymentStart = [datetime]::Now
-
-# The following was part of: Invoke-MyAzureLabPart1 -Config $config
-
-Write-PSFMessage -Level Host -Message 'Step 2: Setting up virtual maschines'
-foreach ($computerName in $vmConfig.Keys) {
-    Write-PSFMessage -Level Host -Message "Creating virtual maschine $computerName"
-    New-MyAzureLabVM -ComputerName $computerName -SourceImage $vmConfig.$computerName.SourceImage -VMSize $vmConfig.$computerName.VMSize -Credential $initCredential -TrustedLaunch -EnableException
+# Configure computer account of SQL Server to be able to register SPNs
+$session = New-MyAzureLabSession -ComputerName DC -Credential $adminCredential
+Invoke-Command -Session $session -ScriptBlock { 
+    $result = dsacls.exe "CN=SQL2022,CN=Computers,DC=dom,DC=local" /G "SELF:RPWP;servicePrincipalName"
+    $result[-1]
 }
-# The following also sets $statusConfig.Uri and $domainConfig.DCIPAddress
-New-MyAzureLabStatusVM -EnableException
+$session | Remove-PSSession
 
-
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 2: Setting up the active directory domain'
-##########
-
-# Renaming the virtual maschines
-# Installing software
-# Setting up PowerShell
-# Installing PowerShell modules
-# Setting up domain
-# Setting up file server on domain controller
-
-$partStartedAt = [datetime]::Now
-foreach ($computerName in $vmConfig.Keys) {
-    Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-    Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_A -Config $vmConfig.$computerName -verbose
+# Make sure the SQL Server services are started
+$session = New-MyAzureLabSession -ComputerName SQL2022 -Credential $adminCredential
+Invoke-Command -Session $session -ScriptBlock { 
+    Start-Service -Name 'MSSQLSERVER'
+    Start-Service -Name 'MSSQL$DBATOOLS'
 }
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt
-
-    
+$session | Remove-PSSession
 
 
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 3: Setting up SQL Server resources'
-##########
-
-# Creating AD users
-# Filling file server with sql server sources
-# Setting up CredSSP
-
-$partStartedAt = [datetime]::Now
-foreach ($computerName in $vmConfig.Keys) {
-    if ($vmConfig.$computerName.Script_B) {
-        Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_B -Config $vmConfig.$computerName
-    }
-}
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt
-
-
-
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 4: Setting up SQL Server instances'
-##########
-
-$partStartedAt = [datetime]::Now
-foreach ($computerName in $vmConfig.Keys) {
-    if ($vmConfig.$computerName.Script_C) {
-        Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_C -Config $vmConfig.$computerName
-    }
-    if ($vmConfig.$computerName.ScriptBlock_C) {
-        Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-        $script = Get-Content -Path $vmConfig.$computerName.ScriptBlock_C -Raw
-        $scriptblock = [scriptblock]::Create($script)
-        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -ScriptBlock $scriptblock
-    }
-}
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt
-
-Remove-MyAzureLabVM -ComputerName STATUS
-
-$deploymentDuration = [datetime]::Now - $deploymentStart
-Write-PSFMessage -Level Host -Message "Finished deployment after $([int]$deploymentDuration.TotalMinutes) minutes"
-
-
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 5: Connecting to client'
-##########
+# Connect to client
 
 # Just once:
 # reg add "HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client" /v "AuthenticationLevelOverride" /t "REG_DWORD" /d 0 /f
 
 Start-MyAzureLabRDP -ComputerName CLIENT -Credential $userCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $adminCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlUserCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlAdminCredential
 
+Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $sqlAdminCredential
 
-##########
-Write-PSFMessage -Level Host -Message 'Part 6: Saving PSCredential at client'
-##########
+# Save PSCredential at client
 
 $session = New-MyAzureLabSession -ComputerName CLIENT -Credential $userCredential
 Write-PSFMessage -Level Host -Message 'Session ist started'
@@ -171,6 +107,46 @@ Invoke-Command -Session $session -ScriptBlock {
     }
 }
 $session | Remove-PSSession
+
+
+# To use the PowerShell module ActiveDirectory in the CLIENT:
+# Install-WindowsFeature -Name "RSAT-AD-PowerShell"
+
+
+
+
+
+Restart-MyAzureLabVM -ComputerName SQL2022
+
+
+ipmo dbatools
+
+$cred = Get-Credential 
+Test-DbaConnection -SqlInstance SQL2022, SQL2022\DBATOOLS -SqlCredential $cred
+
+Get-EventLog -ComputerName SQL2022 -LogName Application -Source 'MSSQL$DBATOOLS' -Message *SPN*
+
+Restart-Computer -ComputerName SQL2022
+
+Get-EventLog -ComputerName SQL2022 -LogName Application -Source 'MSSQL$DBATOOLS' -Message *SPN* -Newest 3
+Get-EventLog -ComputerName SQL2022 -LogName Application -Source MSSQLSERVER -Message *SPN* -Newest 3
+
+Get-DbaService -ComputerName SQL2022 -Type Engine
+
+Stop-DbaService -ComputerName SQL2022 -InstanceName MSSQLSERVER -Type Engine
+
+Stop-DbaService -ComputerName SQL2022 -InstanceName DBATOOLS -Type Engine -Force
+Start-DbaService -ComputerName SQL2022 -InstanceName DBATOOLS -Type Engine
+
+Install-WindowsFeature -Name "RSAT-AD-PowerShell"
+
+Set-DbaNetworkConfiguration -SqlInstance sql2022\dbatools -StaticPortForIPAll 14333
+
+Set-DbaNetworkConfiguration -SqlInstance sql2022\dbatools -DynamicPortForIPAll -RestartService
+
+
+
+
 
 
 
