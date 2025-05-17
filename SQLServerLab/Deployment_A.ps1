@@ -304,22 +304,22 @@ try {
     return
 }
 
-try {
-    Send-Status -Message 'Starting to configure edge browser'
+if (-not (Test-Path -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge)) {
+    try {
+        Send-Status -Message 'Starting to configure edge browser'
 
-    $null = New-Item -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge
-    $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name HideFirstRunExperience -PropertyType DWord -Value 1
-    $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name EditFavoritesEnabled -PropertyType DWord -Value 0
-    $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name NewTabPageLocation -PropertyType String -Value 'https://seminare.ordix.de'
-    Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk' -Destination C:\Users\Public\Desktop
-    
-    Send-Status -Message 'Finished to configure edge browser'
-} catch {
-    Send-Status -Message "Failed to configure edge browser: $_"
-    return
+        $null = New-Item -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge
+        $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name HideFirstRunExperience -PropertyType DWord -Value 1
+        $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name EditFavoritesEnabled -PropertyType DWord -Value 0
+        $null = New-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge -Name NewTabPageLocation -PropertyType String -Value 'https://seminare.ordix.de'
+        Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Edge.lnk' -Destination C:\Users\Public\Desktop
+        
+        Send-Status -Message 'Finished to configure edge browser'
+    } catch {
+        Send-Status -Message "Failed to configure edge browser: $_"
+        return
+    }
 }
-
-
 
 try {
     Send-Status -Message 'Starting to remove startup task'

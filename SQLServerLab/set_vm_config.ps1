@@ -1,3 +1,5 @@
+# This file should be included from ..\init_SQLServerLab.ps1
+
 # Configuration of the target domain
 # Will be used later in this script
 $statusConfig = [PSCustomObject]@{
@@ -12,7 +14,7 @@ $domainConfig = [PSCustomObject]@{
     UserPassword  = 'P#ssw0rd'
     DCIPAddress   = $null        # Will be set during the deployment
 }
-$vmConfig = @{
+$vmConfig = [ordered]@{
     DC = [PSCustomObject]@{
         SourceImage  = 'WindowsServer2022'
         VMSize       = 'Standard_B2s_v2'
@@ -56,7 +58,8 @@ $vmConfig = @{
         )
         DelegateComputer = @(
             'SQL01'
-            'SQL2019'
+            'SQL02'
+#            'SQL2019'
             'SQL2022'
         )
         SQLServer    = [PSCustomObject]@{
@@ -68,7 +71,7 @@ $vmConfig = @{
         }
     }
     SQL01 = [PSCustomObject]@{
-        SourceImage   = 'SQLServer2022'
+        SourceImage   = 'WindowsServer2022'
         VMSize        = 'Standard_B4s_v2'
         Script_A      = "$PSScriptRoot\Deployment_A.ps1"
         Script_B      = "$PSScriptRoot\Deployment_B_SQL.ps1"
@@ -83,12 +86,11 @@ $vmConfig = @{
             'PSFramework'
         )
     }
-    SQL2019 = [PSCustomObject]@{
-        SourceImage   = 'SQLServer2019'
+    SQL02 = [PSCustomObject]@{
+        SourceImage   = 'WindowsServer2022'
         VMSize        = 'Standard_B4s_v2'
         Script_A      = "$PSScriptRoot\Deployment_A.ps1"
         Script_B      = "$PSScriptRoot\Deployment_B_SQL.ps1"
-        ScriptBlock_C = "$PSScriptRoot\Deployment_C_SQL20xx.ps1"
         Status        = $statusConfig
         Domain        = $domainConfig 
         Packages      = @(
@@ -100,6 +102,23 @@ $vmConfig = @{
             'PSFramework'
         )
     }
+#    SQL2019 = [PSCustomObject]@{
+#        SourceImage   = 'SQLServer2019'
+#        VMSize        = 'Standard_B4s_v2'
+#        Script_A      = "$PSScriptRoot\Deployment_A.ps1"
+#        Script_B      = "$PSScriptRoot\Deployment_B_SQL.ps1"
+#        ScriptBlock_C = "$PSScriptRoot\Deployment_C_SQL20xx.ps1"
+#        Status        = $statusConfig
+#        Domain        = $domainConfig 
+#        Packages      = @(
+#            'notepadplusplus'
+#            '7zip'
+#            'powershell-core'
+#        )
+#        Modules       = @(
+#            'PSFramework'
+#        )
+#    }
     SQL2022 = [PSCustomObject]@{
         SourceImage   = 'SQLServer2022'
         VMSize        = 'Standard_B4s_v2'
@@ -122,3 +141,5 @@ $vmConfig = @{
 # These are "global" variables, so that they can be used in other commands
 $userCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\$($domainConfig.UserName)", (ConvertTo-SecureString -String $domainConfig.UserPassword -AsPlainText -Force))
 $adminCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)", (ConvertTo-SecureString -String $domainConfig.AdminPassword -AsPlainText -Force))
+$sqlUserCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\SQLUser", (ConvertTo-SecureString -String $domainConfig.UserPassword -AsPlainText -Force))
+$sqlAdminCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\SQLAdmin", (ConvertTo-SecureString -String $domainConfig.AdminPassword -AsPlainText -Force))

@@ -47,7 +47,8 @@ if ((Get-ADUser -Filter *).Name -notcontains 'SQLAdmin') {
         New-ADGroup -Name SQLUsers -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
         New-ADGroup -Name SQLAdmins -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
         Add-ADGroupMember -Identity SQLUsers -Members SQLUser
-        Add-ADGroupMember -Identity SQLAdmins -Members SQLAdmin, $config.Domain.UserName
+        Add-ADGroupMember -Identity SQLAdmins -Members SQLAdmin
+        #Add-ADGroupMember -Identity SQLAdmins -Members $config.Domain.UserName
         foreach ($sam in (Get-ADComputer -Filter 'name -like "SQL*"').SamAccountName) {
             Add-ADGroupMember -Identity SQLServiceAccounts -Members $sam
         }
@@ -80,10 +81,10 @@ if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software
             $null = New-Item -Path $destination -ItemType Directory
             Copy-Item -Path "\\$name\SQLServerFull\*" -Destination $destination -Recurse
             $session | Remove-PSSession
-            & "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU"
+            & "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU" -Last 2
         }
 
-        Send-Status -Message 'Starting to fill file server with SQL Server smple databases'
+        Send-Status -Message 'Starting to fill file server with SQL Server sample databases'
         $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases" -ItemType Directory
         ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2022.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2022.bak")
         ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2019.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2019.bak")

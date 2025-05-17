@@ -49,108 +49,9 @@ $psSession | Remove-PSSession
 # Read the configuration
 . .\SQLServerLab\set_vm_config.ps1
 
+# Create the VMs
+. .\SQLServerLab\create_VMs.ps1
 
-# To keep track of the duration
-$deploymentStart = [datetime]::Now
-
-# The following was part of: Invoke-MyAzureLabPart1 -Config $config
-
-Write-PSFMessage -Level Host -Message 'Step 2: Setting up virtual maschines'
-foreach ($computerName in $vmConfig.Keys) {
-    # $computerName = 'DC'
-    Write-PSFMessage -Level Host -Message "Creating virtual maschine $computerName"
-    New-MyAzureLabVM -ComputerName $computerName -SourceImage $vmConfig.$computerName.SourceImage -VMSize $vmConfig.$computerName.VMSize -Credential $initCredential -TrustedLaunch -EnableException
-}
-
-# Operation could not be completed as it results in exceeding approved Total Regional Cores quota. Additional details - Deployment Model: Resource Manager, Location: northeurope, Current Limit: 20, Current Usage: 18,
-
-
-Write-PSFMessage -Level Host -Message 'Step 3: Setting up deployment monitoring'
-New-MyAzureLabVM -ComputerName STATUS -SourceImage Ubuntu22 -VMSize Standard_B2s -Credential $initCredential -EnableException
-Write-PSFMessage -Level Host -Message 'Configuring virtual maschine STATUS'
-Set-MyAzureLabSFTPItem -ComputerName STATUS -Credential $initCredential -Path .\status.ps1 -Destination "/home/$($initCredential.UserName)" -Force -EnableException
-$installStatusApi = @(
-    "sudo timedatectl set-timezone $timezone"
-    "echo '@reboot sudo pwsh /home/$($initCredential.UserName)/status.ps1 &' > /tmp/crontab"
-    'crontab /tmp/crontab'
-    'rm /tmp/crontab'
-)
-$null = Invoke-MyAzureLabSSHCommand -ComputerName STATUS -Credential $initCredential -Command $installStatusApi -EnableException
-Restart-MyAzureLabVM -ComputerName STATUS -EnableException
-
-
-$statusApiPrivateIP = (Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name "STATUS_Interface").IpConfigurations[0].PrivateIpAddress
-$statusConfig.Uri = "http://$statusApiPrivateIP/status"
-$domainConfig.DCIPAddress = (Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name "DC_Interface").IpConfigurations[0].PrivateIpAddress
-
-
-
-
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 2: Setting up the active directory domain'
-##########
-
-# Renaming the virtual maschines
-# Installing software
-# Setting up PowerShell
-# Installing PowerShell modules
-# Setting up domain
-# Setting up file server on domain controller
-
-$partStartedAt = [datetime]::Now
-foreach ($computerName in $vmConfig.Keys) {
-    Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-    Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_A -Config $vmConfig.$computerName -EnableException
-}
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt
-
-    
-
-
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 3: Setting up SQL Server resources'
-##########
-
-# Creating AD users
-# Filling file server with sql server sources
-# Setting up CredSSP
-
-$partStartedAt = [datetime]::Now
-foreach ($computerName in $vmConfig.Keys) {
-    if ($vmConfig.$computerName.Script_B) {
-        Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_B -Config $vmConfig.$computerName -EnableException
-    }
-}
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt
-
-
-
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 4: Setting up SQL Server instances'
-##########
-
-$partStartedAt = [datetime]::Now
-foreach ($computerName in $vmConfig.Keys) {
-    if ($vmConfig.$computerName.Script_C) {
-        Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_C -Config $vmConfig.$computerName -EnableException
-    }
-    if ($vmConfig.$computerName.ScriptBlock_C) {
-        Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
-        $script = Get-Content -Path $vmConfig.$computerName.ScriptBlock_C -Raw
-        $scriptblock = [scriptblock]::Create($script)
-        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -ScriptBlock $scriptblock
-    }
-}
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt
-
-
-
-Remove-MyAzureLabVM -ComputerName STATUS
 
 
 
@@ -161,33 +62,7 @@ Write-PSFMessage -Level Host -Message 'Part 5: Connecting to client'
 # Just once:
 # reg add "HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client" /v "AuthenticationLevelOverride" /t "REG_DWORD" /d 0 /f
 
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $userCredential
-
-
-##########
-Write-PSFMessage -Level Host -Message 'Part 6: Saving PSCredential at client'
-##########
-
-$session = New-MyAzureLabSession -ComputerName CLIENT -Credential $userCredential
-Write-PSFMessage -Level Host -Message 'Session ist started'
-Invoke-Command -Session $session -ScriptBlock { 
-    # We have to wait for the logon of the RDP session to complete
-    $target = [datetime]::Now.AddSeconds(15)
-    while ([datetime]::Now -lt $target) {
-        try {
-            $using:userCredential | Export-Clixml -Path $HOME\MyCredential.xml
-            break
-        } catch {
-            Write-Warning "Fehler: $_"
-            Start-Sleep -Seconds 1
-        }
-    }
-}
-$session | Remove-PSSession
-
-
-$deploymentDuration = [datetime]::Now - $deploymentStart
-Write-PSFMessage -Level Host -Message "Finished deployment after $([int]$deploymentDuration.TotalMinutes) minutes"
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlAdminCredential
 
 
 
@@ -197,6 +72,18 @@ Write-PSFMessage -Level Host -Message "Finished deployment after $([int]$deploym
 
 
 
+
+
+# To remove all virtual maschines:
+##################################
+
+Remove-MyAzureLabVM -All -Verbose
+
+
+# The path where the logging is saved:
+######################################
+
+Get-PSFConfigvalue -FullName PSFramework.Logging.FileSystem.LogPath 
 
 
 

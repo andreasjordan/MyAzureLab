@@ -8,10 +8,13 @@ $ruleParams = @{
     Protocol    = 'TCP'
     LocalPort   = '1433'
 }
-$null = New-NetFirewallRule @ruleParams
+if (-not (Get-NetFirewallRule -Name $ruleParams.Name -ErrorAction SilentlyContinue)) {
+    $null = New-NetFirewallRule @ruleParams
+}
 
 # Add the domain group SQLAdmins to the sysadmin server role to get access to the default instance as a domain user
 $sql = @(
+    'CREATE LOGIN [DOM\SQLUsers] FROM WINDOWS'
     'CREATE LOGIN [DOM\SQLAdmins] FROM WINDOWS'
     'ALTER SERVER ROLE sysadmin ADD MEMBER [DOM\SQLAdmins]'
 )

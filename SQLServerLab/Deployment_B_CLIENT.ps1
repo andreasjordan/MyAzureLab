@@ -38,7 +38,15 @@ while ( $true ) {
     try {
         Send-Status -Message 'Starting to configure users und CredSSP'
 
-        Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
+        #Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
+        foreach ($user in $config.Domain.UserName, 'SQLAdmin', 'SQLUser') {
+            if ("$($config.Domain.NetbiosName)\$user" -notin (Get-LocalGroupMember -Group 'Remote Desktop Users').Name) {
+                Add-LocalGroupMember -Group 'Remote Desktop Users' -Member "$($config.Domain.NetbiosName)\$user"
+            }
+            if ("$($config.Domain.NetbiosName)\$user" -notin (Get-LocalGroupMember -Group 'Remote Management Users').Name) {
+                Add-LocalGroupMember -Group 'Remote Management Users' -Member "$($config.Domain.NetbiosName)\$user"
+            }
+        }
         foreach ($computer in $config.DelegateComputer) {
             $null = Enable-WSManCredSSP -Role Client -DelegateComputer "$computer.$($config.Domain.Name)", $computer -Force
         }

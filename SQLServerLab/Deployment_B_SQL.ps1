@@ -45,6 +45,10 @@ Send-Status -Message 'Waiting for domain controller to be ready'
 while ( $true ) { 
     try {
         $null = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().FindDomainController()
+        if ([DirectoryServices.DirectorySearcher]::new([ADSI]"LDAP://$($config.Domain.Name)", "(&(objectClass=user)(sAMAccountName=SQLAdmin))").FindOne()) {
+            break
+        }
+ 	    Start-Sleep -Seconds 30
         break
     } catch {
 	    Start-Sleep -Seconds 30
@@ -54,7 +58,9 @@ while ( $true ) {
     try {
         Send-Status -Message 'Starting to configure users und CredSSP'
 
-        Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\$($config.Domain.UserName)"
+        if ("$($config.Domain.NetbiosName)\SQLAdmin" -notin (Get-LocalGroupMember -Group Administrators).Name) {
+            Add-LocalGroupMember -Group Administrators -Member "$($config.Domain.NetbiosName)\SQLAdmin"
+        }
         $null = Enable-WSManCredSSP -Role Server -Force
         'y' | winrm quickconfig
 
