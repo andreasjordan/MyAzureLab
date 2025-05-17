@@ -49,7 +49,6 @@ while ( $true ) {
             break
         }
  	    Start-Sleep -Seconds 30
-        break
     } catch {
 	    Start-Sleep -Seconds 30
     }

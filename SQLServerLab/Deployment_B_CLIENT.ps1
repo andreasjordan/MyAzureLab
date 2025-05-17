@@ -57,7 +57,7 @@ while ( $true ) {
         return
     }
 
-if (-not (Test-Path -Path C:\GitHub\dataplat\dbatools)) {
+if ((Get-Command -Name git -ErrorAction SilentlyContinue) -and -not (Test-Path -Path C:\GitHub\dataplat\dbatools)) {
     try {
         Send-Status -Message 'Starting to clone dbatools repository'
 
