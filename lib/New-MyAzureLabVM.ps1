@@ -18,7 +18,7 @@ function New-MyAzureLabVM {
     
             Write-PSFMessage -Level Verbose -Message 'Getting subnet, domain controller IP and network security group'
             $subnet = (Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName).Subnets[0]
-            $dcPrivateIpAddress = $subnet.AddressPrefix[0].Split('/')[0] -replace '0$', '10'
+            $dcPrivateIpAddress = $subnet.AddressPrefix[0].Split('/')[0] -replace '0$', '100'
             $networkSecurityGroup = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName
         } catch {
             Stop-PSFFunction -Message 'Failed to get information' -ErrorRecord $_ -EnableException $EnableException
@@ -143,44 +143,59 @@ function New-MyAzureLabVM {
         }
 
         try {
-            Write-PSFMessage -Level Verbose -Message 'Creating PublicIpAddress'
-            $publicIpAddress = New-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Location $location @publicIpAddressParam
-
-            Write-PSFMessage -Level Verbose -Message 'Creating NetworkInterface'
-            $networkInterface = New-AzNetworkInterface -ResourceGroupName $resourceGroupName -Location $location @networkInterfaceParam -PublicIpAddressId $publicIpAddress.Id
-
-            Write-PSFMessage -Level Verbose -Message 'Creating VMConfig'
-            $vmConfig = New-AzVMConfig @vmConfigParam
-
-            Write-PSFMessage -Level Verbose -Message 'Adding NetworkInterface'
-            $vmConfig = Add-AzVMNetworkInterface -VM $vmConfig -Id $networkInterface.Id
-
-            Write-PSFMessage -Level Verbose -Message 'Setting OperatingSystem'
-            $vmConfig = Set-AzVMOperatingSystem -VM $vmConfig @operatingSystemParam
-
-            Write-PSFMessage -Level Verbose -Message 'Setting SourceImage'
-            $vmConfig = Set-AzVMSourceImage -VM $vmConfig @sourceImageParam
-
-            Write-PSFMessage -Level Verbose -Message 'Setting OSDisk'
-            $vmConfig = Set-AzVMOSDisk -VM $vmConfig @osDiskParam
-
-            Write-PSFMessage -Level Verbose -Message 'Setting BootDiagnostic'
-            $vmConfig = Set-AzVMBootDiagnostic -VM $vmConfig @bootDiagnosticParam
-
-            if ($SourceImage -like 'Windows*' -or $SourceImage -like 'SQLServer*') {
-                Write-PSFMessage -Level Verbose -Message 'Adding Secret'
-                $vmConfig = Add-AzVMSecret -VM $vmConfig @secretParam
+            $publicIpAddress = Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name $publicIpAddressParam.Name -ErrorAction SilentlyContinue
+            if ($publicIpAddress) {
+                Write-PSFMessage -Level Verbose -Message 'PublicIpAddress already created'
+            } else {
+                Write-PSFMessage -Level Verbose -Message 'Creating PublicIpAddress'
+                $publicIpAddress = New-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Location $location @publicIpAddressParam
             }
 
-            if ($TrustedLaunch) {
-                Write-PSFMessage -Level Verbose -Message 'Adding SecurityProfile'
-                $vmConfig = Set-AzVmSecurityProfile -VM $vmConfig -SecurityType TrustedLaunch
-                $vmConfig = Set-AzVmUefi -VM $vmConfig -EnableVtpm $true -EnableSecureBoot $true 
+            $networkInterface = Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name $networkInterfaceParam.Name -ErrorAction SilentlyContinue
+            if ($networkInterface) {
+                Write-PSFMessage -Level Verbose -Message 'NetworkInterface already created'
+            } else {
+                Write-PSFMessage -Level Verbose -Message 'Creating NetworkInterface'
+                $networkInterface = New-AzNetworkInterface -ResourceGroupName $resourceGroupName -Location $location @networkInterfaceParam -PublicIpAddressId $publicIpAddress.Id
             }
 
-            Write-PSFMessage -Level Verbose -Message 'Creating VM'
-            $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
-            Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
+            $vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmConfigParam.VMName -ErrorAction SilentlyContinue
+            if ($vm) {
+                Write-PSFMessage -Level Verbose -Message 'VM already created'
+            } else {
+                Write-PSFMessage -Level Verbose -Message 'Creating VMConfig'
+                $vmConfig = New-AzVMConfig @vmConfigParam
+
+                Write-PSFMessage -Level Verbose -Message 'Adding NetworkInterface'
+                $vmConfig = Add-AzVMNetworkInterface -VM $vmConfig -Id $networkInterface.Id
+
+                Write-PSFMessage -Level Verbose -Message 'Setting OperatingSystem'
+                $vmConfig = Set-AzVMOperatingSystem -VM $vmConfig @operatingSystemParam
+
+                Write-PSFMessage -Level Verbose -Message 'Setting SourceImage'
+                $vmConfig = Set-AzVMSourceImage -VM $vmConfig @sourceImageParam
+
+                Write-PSFMessage -Level Verbose -Message 'Setting OSDisk'
+                $vmConfig = Set-AzVMOSDisk -VM $vmConfig @osDiskParam
+
+                Write-PSFMessage -Level Verbose -Message 'Setting BootDiagnostic'
+                $vmConfig = Set-AzVMBootDiagnostic -VM $vmConfig @bootDiagnosticParam
+
+                if ($SourceImage -like 'Windows*' -or $SourceImage -like 'SQLServer*') {
+                    Write-PSFMessage -Level Verbose -Message 'Adding Secret'
+                    $vmConfig = Add-AzVMSecret -VM $vmConfig @secretParam
+                }
+
+                if ($TrustedLaunch) {
+                    Write-PSFMessage -Level Verbose -Message 'Adding SecurityProfile'
+                    $vmConfig = Set-AzVmSecurityProfile -VM $vmConfig -SecurityType TrustedLaunch
+                    $vmConfig = Set-AzVmUefi -VM $vmConfig -EnableVtpm $true -EnableSecureBoot $true 
+                }
+
+                Write-PSFMessage -Level Verbose -Message 'Creating VM'
+                $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
+                Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
+            }
 
             if ($SourceImage -match 'Ubuntu') {
                 Write-PSFMessage -Level Verbose -Message 'Testing SSH connection'
