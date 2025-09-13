@@ -48,7 +48,30 @@ $vmConfig = [ordered]@{
         Modules      = @(
             'PSFramework'
         )
-        FileServerDriveLetter = 'C'
+        FileServer   = [PSCustomObject]@{
+            DriveLetter = 'C'
+            BaseFolder  = 'FileServer'
+            Shares      = @(
+                [PSCustomObject]@{
+                    Name         = 'Software'
+                    Folder       = 'Software'
+                    FullAccess   = @("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)")
+                    ChangeAccess = @('Everyone')
+                }
+                [PSCustomObject]@{
+                    Name         = 'Backup'
+                    Folder       = 'Backup'
+                    FullAccess   = @("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)")
+                    ChangeAccess = @('Everyone')
+                }
+                [PSCustomObject]@{
+                    Name         = 'Temp'
+                    Folder       = 'Temp'
+                    FullAccess   = @("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)")
+                    ChangeAccess = @('Everyone')
+                }
+            )
+        }
     }
     CLIENT = [PSCustomObject]@{
         SourceImage  = 'WindowsServer2022'

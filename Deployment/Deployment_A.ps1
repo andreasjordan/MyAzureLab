@@ -316,8 +316,8 @@ if ($env:COMPUTERNAME -eq 'DC') {
             try {
                 Send-Status -Message "Starting to create domain user $($user.Name)"
 
-                $userPassword = ConvertTo-SecureString -String $user.Password -AsPlainText -Force
-                New-ADUser -Name $user.Name -AccountPassword $userPassword -Enabled $true
+                $securePassword = ConvertTo-SecureString -String $user.Password -AsPlainText -Force
+                New-ADUser -Name $user.Name -AccountPassword $securePassword -Enabled $true
                 
                 if ($user.ADGroups) {
                     foreach ($group in $user.ADGroups) {
@@ -336,13 +336,13 @@ if ($env:COMPUTERNAME -eq 'DC') {
         }
     }
 
-    if ($config.FileServerDriveLetter -and (Get-PSDrive -PSProvider FileSystem).Name -notcontains $config.FileServerDriveLetter) {
+    if ($config.FileServer.DriveLetter -and (Get-PSDrive -PSProvider FileSystem).Name -notcontains $config.FileServer.DriveLetter) {
         try {
             Send-Status -Message 'Starting to create file server drive'
     
             $disk = Get-Disk | Where-Object -Property PartitionStyle -EQ 'RAW' | Sort-Object -Property Number | Select-Object -First 1
             $disk | Initialize-Disk -PartitionStyle GPT
-            $partition = $disk | New-Partition -UseMaximumSize -DriveLetter $config.FileServerDriveLetter
+            $partition = $disk | New-Partition -UseMaximumSize -DriveLetter $config.FileServer.DriveLetter
             $null = $partition | Format-Volume -FileSystem NTFS -NewFileSystemLabel "FileServer"
     
             Send-Status -Message 'Finished to create file server drive'
@@ -352,24 +352,19 @@ if ($env:COMPUTERNAME -eq 'DC') {
         }
     }
     
-    if ($config.FileServerDriveLetter -and -not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer")) {
+    if ($config.FileServer.DriveLetter -and -not (Test-Path -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)")) {
         try {
             Send-Status -Message 'Starting to create file server'
     
-            $accessParams = @{
-                FullAccess   = "$($config.Domain.NetbiosName)\$($config.Domain.AdminName)"
-                ChangeAccess = 'Everyone'
+            foreach ($share in $config.FileServer.Shares) {
+                $null = New-Item -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($share.Folder)" -ItemType Directory
+                $null = New-SmbShare -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($share.Folder)" -Name $($share.Name) -FullAccess $share.FullAccess -ChangeAccess $share.ChangeAccess
             }
-    
-            $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software" -ItemType Directory
-            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Software" -Name Software @accessParams
 
-            $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Backup" -ItemType Directory
-            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Backup" -Name Backup @accessParams
+            foreach ($download in $config.FileServer.Downloads) {
+                ([System.Net.WebClient]::new()).DownloadFile($download.Url, "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($download.Folder)\$($download.File)")
+            }
 
-            $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Temp" -ItemType Directory
-            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Temp" -Name Temp @accessParams
-    
             Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $config.Domain.Name -HostNameAlias "dc.$($config.Domain.Name)" -Name fs
             
             Send-Status -Message 'Finished to create file server'
