@@ -1,7 +1,7 @@
 function Wait-MyAzureLabDeploymentCompletion {
     [CmdletBinding()]
     Param (
-        [string]$StatusURL,
+        [string]$StatusURL = $statusConfig.Uri,
         [string]$WaitFor = 'Finished deployment',
         [datetime]$OnlyStatusAfter = [datetime]::Now,
         [switch]$EnableException
