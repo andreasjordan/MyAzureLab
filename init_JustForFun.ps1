@@ -95,7 +95,7 @@ $null = New-AzResourceGroup -Name $resourceGroupName -Location $location
 # Get-AzKeyVault -InRemovedState -WarningAction SilentlyContinue | ForEach-Object -Process { Remove-AzKeyVault -VaultName $_.VaultName -Location $_.Location -InRemovedState -Force }
 
 # Creating key vault and certificate
-New-MyAzureLabKeyVault -Credential $initCredential
+New-MyAzureLabKeyVault
 # Get-AzKeyVault -ResourceGroupName $resourceGroupName | Remove-AzKeyVault -Force
 
 # Creating network and security group
