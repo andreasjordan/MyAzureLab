@@ -33,7 +33,7 @@ function Invoke-MyAzureLabPart1 {
             }
 
             Write-PSFMessage -Level Host -Message 'Creating key vault and certificate'
-            New-MyAzureLabKeyVault -Credential $InitialCredential -EnableException
+            New-MyAzureLabKeyVault -EnableException
 
             Write-PSFMessage -Level Host -Message 'Creating network and security group'
             New-MyAzureLabNetwork -HomeIP $homeIP -EnableException

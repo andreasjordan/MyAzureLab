@@ -1,6 +1,7 @@
 function New-MyAzureLabStatusVM {
     [CmdletBinding()]
     Param(
+        [string]$Timezone = 'Europe/Berlin',
         [switch]$EnableException
     )
 
@@ -11,7 +12,7 @@ function New-MyAzureLabStatusVM {
             Write-PSFMessage -Level Verbose -Message 'Configuring virtual maschine STATUS'
             Set-MyAzureLabSFTPItem -ComputerName STATUS -Credential $initCredential -Path $PSScriptRoot\status.ps1 -Destination "/home/$($initCredential.UserName)" -Force -EnableException
             $installStatusApi = @(
-                "sudo timedatectl set-timezone $timezone"
+                "sudo timedatectl set-timezone $Timezone"
                 "echo '@reboot sudo pwsh /home/$($initCredential.UserName)/status.ps1 &' > /tmp/crontab"
                 'crontab /tmp/crontab'
                 'rm /tmp/crontab'

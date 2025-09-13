@@ -11,10 +11,12 @@ function New-MyAzureLabVM {
     )
 
     process {
+        $certificateName = "$($resourceGroupName.Replace('_',''))Certificate"
+
         try {
             Write-PSFMessage -Level Verbose -Message 'Getting key vault and certificate url'
             $keyVault = Get-AzKeyVault -ResourceGroupName $resourceGroupName -WarningAction SilentlyContinue
-            $certificateUrl = (Get-AzKeyVaultSecret -VaultName $keyVault.VaultName -Name "$($resourceGroupName)Certificate").Id
+            $certificateUrl = (Get-AzKeyVaultSecret -VaultName $keyVault.VaultName -Name $certificateName).Id
     
             Write-PSFMessage -Level Verbose -Message 'Getting subnet, domain controller IP and network security group'
             $subnet = (Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName).Subnets[0]
@@ -97,7 +99,7 @@ function New-MyAzureLabVM {
                 PublisherName = "MicrosoftSQLServer"       # Get-AzVMImagePublisher -Location $location | Where-Object PublisherName -like microsoft*
                 Offer         = "sql2022-ws2022"           # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
                 Skus          = "sqldev-gen2"              # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
-                Version       = "latest"
+                Version       = "latest"                   # Get-AzVMImage -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer -Skus $sourceImageParam.Skus | Select Version
             }
         } elseif ($SourceImage -eq 'Ubuntu22') {
             $sourceImageParam = @{
@@ -105,6 +107,8 @@ function New-MyAzureLabVM {
                 Offer         = "0001-com-ubuntu-server-jammy"  # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
                 Skus          = "22_04-lts-gen2"                # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
+                # RTM: 16.0.221108
+                # CU19: 16.0.250519
             }
         } elseif ($SourceImage -eq 'Ubuntu24') {
             $sourceImageParam = @{
@@ -143,26 +147,26 @@ function New-MyAzureLabVM {
         }
 
         try {
-            $publicIpAddress = Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name $publicIpAddressParam.Name -ErrorAction SilentlyContinue
-            if ($publicIpAddress) {
-                Write-PSFMessage -Level Verbose -Message 'PublicIpAddress already created'
-            } else {
+            try {
+                Write-PSFMessage -Level Verbose -Message 'Testing PublicIpAddress'
+                $publicIpAddress = Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name $publicIpAddressParam.Name
+            } catch {
                 Write-PSFMessage -Level Verbose -Message 'Creating PublicIpAddress'
                 $publicIpAddress = New-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Location $location @publicIpAddressParam
             }
 
-            $networkInterface = Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name $networkInterfaceParam.Name -ErrorAction SilentlyContinue
-            if ($networkInterface) {
-                Write-PSFMessage -Level Verbose -Message 'NetworkInterface already created'
-            } else {
+            try {
+                Write-PSFMessage -Level Verbose -Message 'Testing NetworkInterface'
+                $networkInterface = Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name $networkInterfaceParam.Name
+            } catch {
                 Write-PSFMessage -Level Verbose -Message 'Creating NetworkInterface'
                 $networkInterface = New-AzNetworkInterface -ResourceGroupName $resourceGroupName -Location $location @networkInterfaceParam -PublicIpAddressId $publicIpAddress.Id
             }
 
-            $vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmConfigParam.VMName -ErrorAction SilentlyContinue
-            if ($vm) {
-                Write-PSFMessage -Level Verbose -Message 'VM already created'
-            } else {
+            try {
+                Write-PSFMessage -Level Verbose -Message 'Testing VM'
+                $vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmConfigParam.VMName
+            } catch {
                 Write-PSFMessage -Level Verbose -Message 'Creating VMConfig'
                 $vmConfig = New-AzVMConfig @vmConfigParam
 
@@ -195,6 +199,10 @@ function New-MyAzureLabVM {
                 Write-PSFMessage -Level Verbose -Message 'Creating VM'
                 $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
                 Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
+                if (-not $result.IsSuccessStatusCode) {
+                    Write-Warning -Message "Failed to create the virtual machine. Status code: $($result.StatusCode), Reason: $($result.ReasonPhrase)"
+                    return
+                }
             }
 
             if ($SourceImage -match 'Ubuntu') {

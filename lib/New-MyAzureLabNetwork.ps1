@@ -70,19 +70,29 @@ function New-MyAzureLabNetwork {
         )
 
         try {
-            Write-PSFMessage -Level Verbose -Message 'Creating VirtualNetworkSubnetConfig'
-            $virtualNetworkSubnetConfig = New-AzVirtualNetworkSubnetConfig @virtualNetworkSubnetConfigParam
-            
-            Write-PSFMessage -Level Verbose -Message 'Creating VirtualNetwork'
-            $null = New-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Location $location @virtualNetworkParam -Subnet $virtualNetworkSubnetConfig
-            
-            $securityRules = foreach ($networkSecurityRuleConfigParam in $networkSecurityRules) {
-                Write-PSFMessage -Level Verbose -Message 'Creating NetworkSecurityRuleConfig'
-                New-AzNetworkSecurityRuleConfig @networkSecurityRuleConfigParam
+            try {
+                Write-PSFMessage -Level Verbose -Message 'Testing VirtualNetwork'
+                $null = Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Name $virtualNetworkParam.Name
+            } catch {
+                Write-PSFMessage -Level Verbose -Message 'Creating VirtualNetworkSubnetConfig'
+                $virtualNetworkSubnetConfig = New-AzVirtualNetworkSubnetConfig @virtualNetworkSubnetConfigParam
+                Write-PSFMessage -Level Verbose -Message 'Creating VirtualNetwork'
+                $null = New-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Location $location @virtualNetworkParam -Subnet $virtualNetworkSubnetConfig
             }
-            
-            Write-PSFMessage -Level Verbose -Message 'Creating NetworkSecurityGroup'
-            $null = New-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Location $location @networkSecurityGroupParam -SecurityRules $securityRules
+
+            try {
+                Write-PSFMessage -Level Verbose -Message 'Testing NetworkSecurityGroup'
+                $null = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name $networkSecurityGroupParam.Name
+            } catch {
+                Write-PSFMessage -Level Verbose -Message 'Creating NetworkSecurityRuleConfig for SecurityRules'
+                $securityRules = foreach ($networkSecurityRuleConfigParam in $networkSecurityRules) {
+                    New-AzNetworkSecurityRuleConfig @networkSecurityRuleConfigParam
+                }
+                Write-PSFMessage -Level Verbose -Message 'Creating NetworkSecurityGroup'
+                $null = New-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Location $location @networkSecurityGroupParam -SecurityRules $securityRules
+            }
+
+            Write-PSFMessage -Level Verbose -Message 'Network is ready'
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
         }
