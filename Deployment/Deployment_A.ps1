@@ -362,6 +362,9 @@ if ($env:COMPUTERNAME -eq 'DC') {
             }
 
             foreach ($download in $config.FileServer.Downloads) {
+                if (-not (Test-Path -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($download.Folder)")) {
+                    $null = New-Item -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($download.Folder)" -ItemType Directory
+                }
                 ([System.Net.WebClient]::new()).DownloadFile($download.Url, "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($download.Folder)\$($download.File)")
             }
 
