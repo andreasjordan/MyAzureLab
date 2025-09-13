@@ -104,8 +104,10 @@ $vmConfig = [ordered]@{
     }
 }
 
-# These are "global" variables, so that they can be used in other commands
-$userCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\$($domainConfig.UserName)", (ConvertTo-SecureString -String $domainConfig.UserPassword -AsPlainText -Force))
-$adminCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)", (ConvertTo-SecureString -String $domainConfig.AdminPassword -AsPlainText -Force))
-$sqlUserCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\SQLUser", (ConvertTo-SecureString -String $domainConfig.UserPassword -AsPlainText -Force))
-$sqlAdminCredential = [PSCredential]::new("$($domainConfig.NetbiosName)\SQLAdmin", (ConvertTo-SecureString -String $domainConfig.AdminPassword -AsPlainText -Force))
+# This is a "global" variable, so that it can be used in other commands
+$credentials = [ordered]@{
+    Admin = [PSCredential]::new("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)", (ConvertTo-SecureString -String $domainConfig.AdminPassword -AsPlainText -Force))
+}
+foreach ($user in $domainConfig.Users) {
+    $credentials[$user.Name] = [PSCredential]::new("$($domainConfig.NetbiosName)\$($user.Name)", (ConvertTo-SecureString -String $user.Password -AsPlainText -Force))
+}

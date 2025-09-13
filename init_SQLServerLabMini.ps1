@@ -45,7 +45,7 @@ if ($StartComputerName) {
 if ($ConnectComputerName) {
     Start-Sleep -Seconds 30
     foreach ($computerName in $ConnectComputerName) {
-        Start-MyAzureLabRDP -ComputerName $computerName -Credential $adminCredential
+        Start-MyAzureLabRDP -ComputerName $computerName -Credential $credentials.Admin
     }
 }
 
@@ -72,17 +72,17 @@ Stop-MyAzureLabResourceGroup
 # Install-WindowsFeature -Name "RSAT-AD-PowerShell"
 
 # I try to use the "normal" account for most of the tests and developments:
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $userCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.User
 
 # On the SQL2022 only the domain admin is able to connect via RDP:
-Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $adminCredential
+Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $credentials.Admin
 
 # For testing dbatools, currently use admin account on CLIENT:
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $adminCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.Admin
 
 
 # Just in case:
-$psSession = New-MyAzureLabSession -ComputerName CLIENT -Credential $userCredential
+$psSession = New-MyAzureLabSession -ComputerName CLIENT -Credential $credentials.User
 $psSession | Remove-PSSession
 
 
@@ -107,14 +107,14 @@ $vmConfig | Show-ObjectTree
 # Just once:
 # reg add "HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client" /v "AuthenticationLevelOverride" /t "REG_DWORD" /d 0 /f
 
-Start-MyAzureLabRDP -ComputerName DC -Credential $adminCredential
+Start-MyAzureLabRDP -ComputerName DC -Credential $credentials.Admin
 
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $userCredential
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $adminCredential
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlUserCredential
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlAdminCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.User
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.Admin
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.SQLUser
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.SQLAdmin
 
-Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $sqlAdminCredential
+Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $credentials.SQLAdmin
 
 
 

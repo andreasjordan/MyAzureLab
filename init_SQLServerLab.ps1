@@ -45,7 +45,7 @@ if ($StartComputerName) {
 if ($ConnectComputerName) {
     Start-Sleep -Seconds 30
     foreach ($computerName in $ConnectComputerName) {
-        Start-MyAzureLabRDP -ComputerName $computerName -Credential $adminCredential
+        Start-MyAzureLabRDP -ComputerName $computerName -Credential $credentials.Admin
     }
 }
 
@@ -66,7 +66,7 @@ Start-MyAzureLabResourceGroup
 
 Stop-MyAzureLabResourceGroup
 
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $adminCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.Admin
 
 
 Start-MyAzureLabRDP -ComputerName SERVER -Credential $initCredential
@@ -95,7 +95,7 @@ Write-PSFMessage -Level Host -Message 'Part 5: Connecting to client'
 # Just once:
 # reg add "HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client" /v "AuthenticationLevelOverride" /t "REG_DWORD" /d 0 /f
 
-Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlAdminCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.SQLAdmin
 
 
 
@@ -104,7 +104,7 @@ Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlAdminCredential
 # Testing dbatools
 ##################
 
-Start-MyAzureLabRDP -ComputerName SQL01 -Credential $adminCredential
+Start-MyAzureLabRDP -ComputerName SQL01 -Credential $credentials.Admin
 
 
 # powershell as administrator on SQL01:
