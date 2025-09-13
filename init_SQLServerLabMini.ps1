@@ -1,22 +1,53 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿Param (
+    [string[]]$StartComputerName,
+    [string[]]$ConnectComputerName
+)
+
+<# Sample code to run this init script:
+. .\init_SQLServerLabMini.ps1
+. .\init_SQLServerLabMini.ps1 -Start DC, CLIENT -Connect CLIENT
+#>
+
+$ErrorActionPreference = 'Stop'
+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "This script needs pwsh 7"
+}
 
 . .\MyAzureLab.ps1
 
 # Name of resource group and location
 # Will be used by MyAzureLab commands (so these are "global" variables)
 $resourceGroupName = 'SQLServerLabMini'
-$location          = 'West Europe'
+$location          = 'North Europe'
 
 # Name and password of the initial account
 $initUser     = 'initialAdmin'     # Will be used when creating the virtual maschines
 $initPassword = 'initialP#ssw0rd'  # Will be used when creating the virtual maschines and for the certificate
 $initCredential = [PSCredential]::new($initUser, (ConvertTo-SecureString -String $initPassword -AsPlainText -Force))
 
-# Only used for the STATUS server
-$timezone = 'Europe/Berlin'
-
 # Show state of the resource group
 Show-MyAzureLabResourceGroupInfo
+
+# Read the configuration
+. .\SQLServerLabMini\set_vm_config.ps1
+
+# Start VMs
+if ($StartComputerName) {
+    if ($StartComputerName -eq 'All') {
+        Start-MyAzureLabResourceGroup    
+    } else {
+        Start-MyAzureLabResourceGroup -OnlyComputerName $StartComputerName
+    }
+}
+
+# Connect to VMs (always use the admin credential in this case)
+if ($ConnectComputerName) {
+    Start-Sleep -Seconds 30
+    foreach ($computerName in $ConnectComputerName) {
+        Start-MyAzureLabRDP -ComputerName $computerName -Credential $adminCredential
+    }
+}
 
 # Don't do anything else
 break
@@ -35,11 +66,19 @@ Start-MyAzureLabResourceGroup
 
 Stop-MyAzureLabResourceGroup
 
+
+
+# To use the PowerShell module ActiveDirectory in the CLIENT:
+# Install-WindowsFeature -Name "RSAT-AD-PowerShell"
+
 # I try to use the "normal" account for most of the tests and developments:
 Start-MyAzureLabRDP -ComputerName CLIENT -Credential $userCredential
 
 # On the SQL2022 only the domain admin is able to connect via RDP:
 Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $adminCredential
+
+# For testing dbatools, currently use admin account on CLIENT:
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $adminCredential
 
 
 # Just in case:
@@ -54,33 +93,21 @@ $psSession | Remove-PSSession
 # Tasks to create and remove virtual maschines:
 ###############################################
 
-# Read the configuration
-. .\SQLServerLabMini\set_vm_config.ps1
+# Show the configuration 
+$vmConfig | ConvertTo-Json
+
+# Uses Microsoft.PowerShell.ConsoleGuiTools and needs some other object structures (so work in progress):
+$vmConfig | Show-ObjectTree
 
 # Create the VMs
 . .\SQLServerLabMini\create_VMs.ps1
-
-# Configure computer account of SQL Server to be able to register SPNs
-$session = New-MyAzureLabSession -ComputerName DC -Credential $adminCredential
-Invoke-Command -Session $session -ScriptBlock { 
-    $result = dsacls.exe "CN=SQL2022,CN=Computers,DC=dom,DC=local" /G "SELF:RPWP;servicePrincipalName"
-    $result[-1]
-}
-$session | Remove-PSSession
-
-# Make sure the SQL Server services are started
-$session = New-MyAzureLabSession -ComputerName SQL2022 -Credential $adminCredential
-Invoke-Command -Session $session -ScriptBlock { 
-    Start-Service -Name 'MSSQLSERVER'
-    Start-Service -Name 'MSSQL$DBATOOLS'
-}
-$session | Remove-PSSession
-
 
 # Connect to client
 
 # Just once:
 # reg add "HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client" /v "AuthenticationLevelOverride" /t "REG_DWORD" /d 0 /f
+
+Start-MyAzureLabRDP -ComputerName DC -Credential $adminCredential
 
 Start-MyAzureLabRDP -ComputerName CLIENT -Credential $userCredential
 Start-MyAzureLabRDP -ComputerName CLIENT -Credential $adminCredential
@@ -89,75 +116,12 @@ Start-MyAzureLabRDP -ComputerName CLIENT -Credential $sqlAdminCredential
 
 Start-MyAzureLabRDP -ComputerName SQL2022 -Credential $sqlAdminCredential
 
-# Save PSCredential at client
-
-$session = New-MyAzureLabSession -ComputerName CLIENT -Credential $userCredential
-Write-PSFMessage -Level Host -Message 'Session ist started'
-Invoke-Command -Session $session -ScriptBlock { 
-    # We have to wait for the logon of the RDP session to complete
-    $target = [datetime]::Now.AddSeconds(15)
-    while ([datetime]::Now -lt $target) {
-        try {
-            $using:userCredential | Export-Clixml -Path $HOME\MyCredential.xml
-            break
-        } catch {
-            Write-Warning "Fehler: $_"
-            Start-Sleep -Seconds 1
-        }
-    }
-}
-$session | Remove-PSSession
-
-
-# To use the PowerShell module ActiveDirectory in the CLIENT:
-# Install-WindowsFeature -Name "RSAT-AD-PowerShell"
-
-
-
-
-
-Restart-MyAzureLabVM -ComputerName SQL2022
-
-
-ipmo dbatools
-
-$cred = Get-Credential 
-Test-DbaConnection -SqlInstance SQL2022, SQL2022\DBATOOLS -SqlCredential $cred
-
-Get-EventLog -ComputerName SQL2022 -LogName Application -Source 'MSSQL$DBATOOLS' -Message *SPN*
-
-Restart-Computer -ComputerName SQL2022
-
-Get-EventLog -ComputerName SQL2022 -LogName Application -Source 'MSSQL$DBATOOLS' -Message *SPN* -Newest 3
-Get-EventLog -ComputerName SQL2022 -LogName Application -Source MSSQLSERVER -Message *SPN* -Newest 3
-
-Get-DbaService -ComputerName SQL2022 -Type Engine
-
-Stop-DbaService -ComputerName SQL2022 -InstanceName MSSQLSERVER -Type Engine
-
-Stop-DbaService -ComputerName SQL2022 -InstanceName DBATOOLS -Type Engine -Force
-Start-DbaService -ComputerName SQL2022 -InstanceName DBATOOLS -Type Engine
-
-Install-WindowsFeature -Name "RSAT-AD-PowerShell"
-
-Set-DbaNetworkConfiguration -SqlInstance sql2022\dbatools -StaticPortForIPAll 14333
-
-Set-DbaNetworkConfiguration -SqlInstance sql2022\dbatools -DynamicPortForIPAll -RestartService
-
-
-
-
-
-
-
-
-
 
 
 # To remove all virtual maschines:
 ##################################
 
-Remove-MyAzureLabVM -All
+Remove-MyAzureLabVM -All -Verbose
 
 
 
@@ -173,7 +137,7 @@ $null = New-AzResourceGroup -Name $resourceGroupName -Location $location
 # Get-AzKeyVault -InRemovedState -WarningAction SilentlyContinue | ForEach-Object -Process { Remove-AzKeyVault -VaultName $_.VaultName -Location $_.Location -InRemovedState -Force }
 
 # Creating key vault and certificate
-New-MyAzureLabKeyVault -Credential $initCredential
+New-MyAzureLabKeyVault
 # Get-AzKeyVault -ResourceGroupName $resourceGroupName | Remove-AzKeyVault -Force
 
 # Creating network and security group

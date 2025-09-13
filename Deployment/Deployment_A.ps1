@@ -4,24 +4,90 @@ Start-Transcript -Path "$PSScriptRoot\transcript-$([datetime]::Now.ToString('yyy
 
 $config = Get-Content -Path $PSScriptRoot\config.txt | ConvertFrom-Json
 
+$statusUri = $config.Status.Uri
+$statusIP = (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp).IPAddress
+$statusHost = hostname
+
 function Send-Status {
     Param([string]$Message)
-    $requestParams = @{
-        Uri             = $config.Status.Uri
-        Method          = 'Post'
-        ContentType     = 'application/json'
-        Body            = @{
-            IP      = (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp).IPAddress
-            Host    = $env:COMPUTERNAME
-            Message = $Message
-        } | ConvertTo-Json -Compress
-        UseBasicParsing = $true
+    Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] $Message"
+    if ($statusUri) {
+        $requestParams = @{
+            Uri             = $statusUri
+            Method          = 'Post'
+            ContentType     = 'application/json'
+            Body            = @{
+                IP      = $statusIP
+                Host    = $statusHost
+                Message = $Message
+            } | ConvertTo-Json -Compress
+            UseBasicParsing = $true
+        }
+        try {
+            $null = Invoke-WebRequest @requestParams
+        } catch {
+            # Ignore errors
+        }
     }
+}
+
+Send-Status -Message 'Starting deployment'
+
+if ((Get-WSManCredSSP)[1] -match 'This computer is not configured to receive credentials') {
     try {
-        $null = Invoke-WebRequest @requestParams
-        Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] $Message"
+        Send-Status -Message 'Starting to setup CredSSP'
+
+        $null = Enable-WSManCredSSP -Role Server -Force
+
+        Send-Status -Message 'Finished to setup CredSSP'
     } catch {
-        Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] Failed to send status [$Message]: $_"
+        Send-Status -Message "Failed to setup CredSSP: $_"
+        return
+    }
+}
+
+if ($config.DelegateComputer -and (Get-WSManCredSSP)[0] -match 'The machine is not configured to allow delegating fresh credentials') {
+    foreach ($computer in $config.DelegateComputer) {
+        $null = Enable-WSManCredSSP -Role Client -DelegateComputer "$computer.$($config.Domain.Name)", $computer -Force
+    }
+}
+
+if (-not (Get-ChildItem -Path WSMan:\localhost\Listener\ | Where-Object { $_.Keys -contains 'Transport=HTTP' })) {
+    try {
+        Send-Status -Message 'Starting to setup HTTP listener for winrm'
+
+        $null = 'y' | winrm quickconfig
+
+        Send-Status -Message 'Finished to setup HTTP listener for winrm'
+    } catch {
+        Send-Status -Message "Failed to setup HTTP listener for winrm: $_"
+        return
+    }
+}
+
+if ((Get-NetFirewallRule -DisplayGroup 'Windows Management Instrumentation (WMI)').Enabled -contains 'False') {
+    try {
+        Send-Status -Message 'Starting to configure firewall for WMI'
+
+        Enable-NetFirewallRule -DisplayGroup 'Windows Management Instrumentation (WMI)'
+        
+        Send-Status -Message 'Finished to configure firewall for WMI'
+    } catch {
+        Send-Status -Message "Failed to configure firewall for WMI: $_"
+        return
+    }
+}
+
+if ((Get-NetFirewallRule -DisplayGroup 'Remote Service Management').Enabled -contains 'False') {
+    try {
+        Send-Status -Message 'Starting to configure firewall for remote service management'
+
+        Enable-NetFirewallRule -DisplayGroup 'Remote Service Management'
+        
+        Send-Status -Message 'Finished to configure firewall for remote service management'
+    } catch {
+        Send-Status -Message "Failed to configure firewall for remote service management: $_"
+        return
     }
 }
 
@@ -187,7 +253,7 @@ if ($env:COMPUTERNAME -eq 'DC' -and (Get-WmiObject -Class Win32_ComputerSystem).
     }
 }
 
-if ($env:COMPUTERNAME -ne 'DC' -and (Get-WmiObject -Class Win32_ComputerSystem).DomainRole -ne 3) {
+if ($env:COMPUTERNAME -ne 'DC' -and (Get-WmiObject -Class Win32_ComputerSystem).DomainRole -notin 1, 3) {
     try {
         Send-Status -Message 'Starting to join the computer to the domain'
 
@@ -220,46 +286,57 @@ if ($env:COMPUTERNAME -ne 'DC' -and (Get-WmiObject -Class Win32_ComputerSystem).
 }
 
 if ($env:COMPUTERNAME -eq 'DC') {
-    Send-Status -Message 'Waiting for domain to be ready'
     while ( $true ) { 
         try {
             $null = Get-ADUser -Filter *
             break
         } catch {
+            Send-Status -Message 'Waiting for domain to be ready'
             Start-Sleep -Seconds 30
         }
     }
 
-    if ((Get-ADUser -Filter *).Name -notcontains $config.Domain.AdminName) {
+    if ($config.Domain.AdminName -and (Get-ADUser -Filter *).Name -notcontains $config.Domain.AdminName) {
         try {
-            Send-Status -Message 'Starting to create admin'
+            Send-Status -Message "Starting to create domain admin $($config.Domain.AdminName)"
     
             $adminPassword = ConvertTo-SecureString -String $config.Domain.AdminPassword -AsPlainText -Force
             New-ADUser -Name $config.Domain.AdminName -AccountPassword $adminPassword -Enabled $true
             Add-ADGroupMember -Identity 'Domain Admins' -Members Admin
 
-            Send-Status -Message 'Finished to create admin'
+            Send-Status -Message "Finished to create domain admin $($config.Domain.AdminName)"
         } catch {
-            Send-Status -Message "Failed to create admin: $_"
+            Send-Status -Message "Failed to create domain admin $($config.Domain.AdminName): $_"
             return
         }
     }
 
-    if ((Get-ADUser -Filter *).Name -notcontains $config.Domain.UserName) {
-        try {
-            Send-Status -Message 'Starting to create user'
-    
-            $userPassword = ConvertTo-SecureString -String $config.Domain.UserPassword -AsPlainText -Force
-            New-ADUser -Name $config.Domain.UserName -AccountPassword $userPassword -Enabled $true
-            
-            Send-Status -Message 'Finished to create user'
-        } catch {
-            Send-Status -Message "Failed to create user: $_"
-            return
+    foreach ($user in $config.Domain.Users) {
+        if ((Get-ADUser -Filter *).Name -notcontains $user.Name) {
+            try {
+                Send-Status -Message "Starting to create domain user $($user.Name)"
+
+                $userPassword = ConvertTo-SecureString -String $user.Password -AsPlainText -Force
+                New-ADUser -Name $user.Name -AccountPassword $userPassword -Enabled $true
+                
+                if ($user.ADGroups) {
+                    foreach ($group in $user.ADGroups) {
+                        if (-not (Get-ADGroup -Filter "Name -EQ '$group'" -ErrorAction SilentlyContinue)) {
+                            New-ADGroup -Name $group -GroupCategory Security -GroupScope Global
+                        }
+                        Add-ADGroupMember -Identity $group -Members $user.Name
+                    }
+                }
+
+                Send-Status -Message "Finished to create domain user $($user.Name)"
+            } catch {
+                Send-Status -Message "Failed to create domain user $($user.Name): $_"
+                return
+            }
         }
     }
 
-    if ((Get-PSDrive -PSProvider FileSystem).Name -notcontains $config.FileServerDriveLetter) {
+    if ($config.FileServerDriveLetter -and (Get-PSDrive -PSProvider FileSystem).Name -notcontains $config.FileServerDriveLetter) {
         try {
             Send-Status -Message 'Starting to create file server drive'
     
@@ -275,19 +352,23 @@ if ($env:COMPUTERNAME -eq 'DC') {
         }
     }
     
-    if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer")) {
+    if ($config.FileServerDriveLetter -and -not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer")) {
         try {
             Send-Status -Message 'Starting to create file server'
     
-            $adminAccountName = "$($config.Domain.NetbiosName)\$($config.Domain.AdminName)"
+            $accessParams = @{
+                FullAccess   = "$($config.Domain.NetbiosName)\$($config.Domain.AdminName)"
+                ChangeAccess = 'Everyone'
+            }
     
-            $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer" -ItemType Directory
-            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer" -Name FileServer
-            $null = Grant-SmbShareAccess -Name FileServer -AccountName $adminAccountName -AccessRight Full -Force
-        
             $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software" -ItemType Directory
-            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Software" -Name Software
-            $null = Grant-SmbShareAccess -Name Software -AccountName $adminAccountName -AccessRight Full -Force
+            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Software" -Name Software @accessParams
+
+            $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Backup" -ItemType Directory
+            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Backup" -Name Backup @accessParams
+
+            $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Temp" -ItemType Directory
+            $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Temp" -Name Temp @accessParams
     
             Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $config.Domain.Name -HostNameAlias "dc.$($config.Domain.Name)" -Name fs
             
@@ -299,28 +380,62 @@ if ($env:COMPUTERNAME -eq 'DC') {
     }
 }
 
+if ($env:COMPUTERNAME -ne 'DC') {
+    foreach ($user in $config.Domain.Users) {
+        while ( $true ) { 
+            try {
+                $null = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().FindDomainController()
+                if ([DirectoryServices.DirectorySearcher]::new([ADSI]"LDAP://$($config.Domain.Name)", "(&(objectClass=user)(sAMAccountName=$($user.Name)))").FindOne()) {
+                    break
+                }
+                Send-Status -Message "Waiting for domain controller to create the user $($user.Name)"
+                Start-Sleep -Seconds 30
+            } catch {
+                Send-Status -Message "Waiting for domain controller to create the user $($user.Name): $_"
+                Start-Sleep -Seconds 30
+            }
+        }
+        foreach ($group in $user.LocalGroups) {
+            if ("$($config.Domain.NetbiosName)\$($user.Name)" -notin (Get-LocalGroupMember -Group $group).Name) {
+                try {
+                    Send-Status -Message "Starting to add $($user.Name) to local group $group"
 
+                    Add-LocalGroupMember -Group $group -Member "$($config.Domain.NetbiosName)\$($user.Name)"
 
-try {
-    Send-Status -Message 'Starting to disable server manager'
-
-    $null = Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask
-
-    Send-Status -Message 'Finished to disable server manager'
-} catch {
-    Send-Status -Message "Failed to disable server manager: $_"
-    return
+                    Send-Status -Message "Finished to add $($user.Name) to local group $group"
+                } catch {
+                    Send-Status -Message "Failed to add $($user.Name) to local group $($group): $_"
+                    return
+                }
+            }
+        }            
+    }
 }
 
-try {
-    Send-Status -Message 'Starting to set time zone'
+if (Get-ScheduledTask -TaskName ServerManager -ErrorAction SilentlyContinue) {
+    try {
+        Send-Status -Message 'Starting to disable server manager'
 
-    Set-Timezone -Id "W. Europe Standard Time"
+        $null = Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask
 
-    Send-Status -Message 'Finished to set time zone'
-} catch {
-    Send-Status -Message "Failed to set time zone: $_"
-    return
+        Send-Status -Message 'Finished to disable server manager'
+    } catch {
+        Send-Status -Message "Failed to disable server manager: $_"
+        return
+    }
+}
+
+if ((Get-TimeZone).Id -ne 'W. Europe Standard Time') {
+    try {
+        Send-Status -Message 'Starting to set time zone'
+
+        Set-Timezone -Id "W. Europe Standard Time"
+
+        Send-Status -Message 'Finished to set time zone'
+    } catch {
+        Send-Status -Message "Failed to set time zone: $_"
+        return
+    }
 }
 
 if (-not (Test-Path -Path HKLM:\SOFTWARE\Policies\Microsoft\Edge)) {

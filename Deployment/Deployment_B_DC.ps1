@@ -4,61 +4,34 @@ Start-Transcript -Path "$PSScriptRoot\transcript-$([datetime]::Now.ToString('yyy
 
 $config = Get-Content -Path $PSScriptRoot\config.txt | ConvertFrom-Json
 
+$statusUri = $config.Status.Uri
+$statusIP = (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp).IPAddress
+$statusHost = hostname
+
 function Send-Status {
     Param([string]$Message)
-    $requestParams = @{
-        Uri             = $config.Status.Uri
-        Method          = 'Post'
-        ContentType     = 'application/json'
-        Body            = @{
-            IP      = (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp).IPAddress
-            Host    = $env:COMPUTERNAME
-            Message = $Message
-        } | ConvertTo-Json -Compress
-        UseBasicParsing = $true
-    }
-    try {
-        $null = Invoke-WebRequest @requestParams
-        Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] $Message"
-    } catch {
-        Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] Failed to send status [$Message]: $_"
-    }
-}
-
-Send-Status -Message 'Waiting for domain to be ready'
-while ( $true ) { 
-    try {
-        $null = Get-ADUser -Filter *
-        break
-    } catch {
-	    Start-Sleep -Seconds 30
-    }
-}
-
-if ((Get-ADUser -Filter *).Name -notcontains 'SQLAdmin') {
-    try {
-        Send-Status -Message 'Starting to create ad users for SQL Server'
-
-        $adminPassword = ConvertTo-SecureString -String $config.Domain.AdminPassword -AsPlainText -Force
-        $sqlUserOU = New-ADOrganizationalUnit -Name SqlUser -ProtectedFromAccidentalDeletion:$false -PassThru
-        New-ADUser -Name SQLUser -AccountPassword $adminPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
-        New-ADUser -Name SQLAdmin -AccountPassword $adminPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
-        New-ADGroup -Name SQLServiceAccounts -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
-        New-ADGroup -Name SQLUsers -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
-        New-ADGroup -Name SQLAdmins -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
-        Add-ADGroupMember -Identity SQLUsers -Members SQLUser
-        Add-ADGroupMember -Identity SQLAdmins -Members SQLAdmin
-        #Add-ADGroupMember -Identity SQLAdmins -Members $config.Domain.UserName
-        foreach ($sam in (Get-ADComputer -Filter 'name -like "SQL*"').SamAccountName) {
-            Add-ADGroupMember -Identity SQLServiceAccounts -Members $sam
+    Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] $Message"
+    if ($statusUri) {
+        $requestParams = @{
+            Uri             = $statusUri
+            Method          = 'Post'
+            ContentType     = 'application/json'
+            Body            = @{
+                IP      = $statusIP
+                Host    = $statusHost
+                Message = $Message
+            } | ConvertTo-Json -Compress
+            UseBasicParsing = $true
         }
-
-        Send-Status -Message 'Finished to create ad users for SQL Server'
-    } catch {
-        Send-Status -Message "Failed to create ad users for SQL Server: $_"
-        return
+        try {
+            $null = Invoke-WebRequest @requestParams
+        } catch {
+            # Ignore errors
+        }
     }
 }
+
+Send-Status -Message 'Starting deployment'
 
 if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer")) {
     try {
@@ -68,7 +41,6 @@ if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software
         $adminPassword = $config.Domain.AdminPassword
         $adminCredential = [PSCredential]::new($adminAccountName, (ConvertTo-SecureString -String $adminPassword -AsPlainText -Force))
 
-        $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer" -ItemType Directory
         $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\ISO" -ItemType Directory
         $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU" -ItemType Directory
         Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/andreasjordan/demos/master/dbatools/Get-CU.ps1' -OutFile "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1"
@@ -81,7 +53,11 @@ if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software
             $null = New-Item -Path $destination -ItemType Directory
             Copy-Item -Path "\\$name\SQLServerFull\*" -Destination $destination -Recurse
             $session | Remove-PSSession
-            & "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU" -Last 2
+            # Not neeeded, because sources include CU
+            # if ((Get-Module -ListAvailable).Name -notcontains 'dbatools') {
+            #     Install-Module -Name dbatools
+            # }
+            # & "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU"
         }
 
         Send-Status -Message 'Starting to fill file server with SQL Server sample databases'
@@ -98,22 +74,6 @@ if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software
         Send-Status -Message 'Finished to fill file server with SQL Server sources'
     } catch {
         Send-Status -Message "Failed to fill file server with SQL Server sources: $_"
-        return
-    }
-}
-
-if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Backup")) {
-    try {
-        Send-Status -Message 'Starting to create backup share'
-
-        $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Backup" -ItemType Directory
-        $null = New-SmbShare -Path "$($config.FileServerDriveLetter):\FileServer\Backup" -Name Backup
-        $null = Grant-SmbShareAccess -Name Backup -AccountName $adminAccountName -AccessRight Full -Force
-        $null = Grant-SmbShareAccess -Name Backup -AccountName SQLServiceAccounts -AccessRight Change -Force    
-        
-        Send-Status -Message 'Finished to create backup share'
-    } catch {
-        Send-Status -Message "Failed to create backup share: $_"
         return
     }
 }

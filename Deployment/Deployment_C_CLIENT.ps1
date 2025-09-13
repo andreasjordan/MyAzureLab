@@ -4,26 +4,34 @@ Start-Transcript -Path "$PSScriptRoot\transcript-$([datetime]::Now.ToString('yyy
 
 $config = Get-Content -Path $PSScriptRoot\config.txt | ConvertFrom-Json
 
+$statusUri = $config.Status.Uri
+$statusIP = (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp).IPAddress
+$statusHost = hostname
+
 function Send-Status {
     Param([string]$Message)
-    $requestParams = @{
-        Uri             = $config.Status.Uri
-        Method          = 'Post'
-        ContentType     = 'application/json'
-        Body            = @{
-            IP      = (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp).IPAddress
-            Host    = $env:COMPUTERNAME
-            Message = $Message
-        } | ConvertTo-Json -Compress
-        UseBasicParsing = $true
-    }
-    try {
-        $null = Invoke-WebRequest @requestParams
-        Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] $Message"
-    } catch {
-        Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] Failed to send status [$Message]: $_"
+    Add-Content -Path $PSScriptRoot\status.txt -Value "[$([datetime]::Now.ToString('HH:mm:ss'))] $Message"
+    if ($statusUri) {
+        $requestParams = @{
+            Uri             = $statusUri
+            Method          = 'Post'
+            ContentType     = 'application/json'
+            Body            = @{
+                IP      = $statusIP
+                Host    = $statusHost
+                Message = $Message
+            } | ConvertTo-Json -Compress
+            UseBasicParsing = $true
+        }
+        try {
+            $null = Invoke-WebRequest @requestParams
+        } catch {
+            # Ignore errors
+        }
     }
 }
+
+Send-Status -Message 'Starting deployment'
 
 try {
     Send-Status -Message 'Starting to install SQL Server instance'
@@ -192,22 +200,6 @@ try {
     Send-Status -Message 'Finished to backup sample databases'
 } catch {
     Send-Status -Message "Failed to backup sample databases: $_"
-    return
-}
-
-try {
-    Send-Status -Message 'Starting to configure system for dbatools tests'
-
-    Install-Module -Name Pester -Force -SkipPublisherCheck -MaximumVersion 4.99
-    Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -MaximumVersion 1.18.2
-    Install-Module -Name dbatools.library -Force
-    
-    Set-Location -Path C:\GitHub
-    git clone --quiet https://github.com/dataplat/appveyor-lab.git
-    
-    Send-Status -Message 'Finished to configure system for dbatools tests'
-} catch {
-    Send-Status -Message "Failed to configure system for dbatools tests: $_"
     return
 }
 
