@@ -21,9 +21,30 @@ This script must be imported inside of the "init_..." scripts.
 
 This holds environment variables with my personl settings. That's why it's part of .gitignore and you have to setup this file on your local system with this content:
 
+Mandatory:
+
 ```
 $Env:MyAzureAccountId    = 'my@mydom.com'
 $Env:MyAzureSubscription = 'The name of the subscription'
+```
+
+Optional:
+
+```
+# Just needed if your account is linked to multiple tenants and you get "WARNUNG: Unable to acquire token for tenant ..."
+$Env:MyAzureTenant = '12345678-abcd-abcd-abcd-012345678901' 
+
+# I have a permanent server with the status api. If this variable is empty, a separate vm for the status api will be deployed.
+$Env:MyStatusURL = 'https://your-server-with-the-status-api/status'
+
+# Just needed for labs where I want to test the installation with the RTM version.
+$Env:MySQL2022URL = 'https://www.dropbox.com/secret-part-of-the-url/enu_sql_server_2022_developer_edition_x64_dvd_7cacf733.iso?dl=1'
+$Env:MySQL2019URL = 'https://www.dropbox.com/secret-part-of-the-url/en_sql_server_2019_developer_x64_dvd_e5ade34a.iso?dl=1'
+
+# Just needed for labs where I need oracle instances.
+$Env:MyOracleLinuxDbHomeURL         = 'https://www.dropbox.com/secret-part-of-the-url/LINUX.X64_193000_db_home.zip?dl=1'
+$Env:MyOracleWindowsClientHomeURL   = 'https://www.dropbox.com/secret-part-of-the-url/WINDOWS.X64_193000_client_home.zip?dl=1'
+$Env:MyOracleWindowsSqlDeveloperURL = 'https://www.dropbox.com/secret-part-of-the-url/sqldeveloper-22.2.1.234.1810-x64.zip?dl=1'
 ```
 
 This file is imported by MyAzureLab.ps1 just before connecting to Azure.
@@ -108,3 +129,10 @@ This script will setup my lab with Azure virtual maschines for a database enviro
 
 It uses code from my repo [PowerShell-for-DBAs](..\PowerShell-for-DBAs\README.md).
 
+
+## Security in the SQL Server Labs
+
+DOM\Admin is the Domain Admin
+DOM\User is just a Domain User that can RDP to the CLIENT
+DOM\SQLAdmin is the SQL Server Admin that is also local Windows Admin on SQLxxxx and can RDP to the CLIENT
+DOM\SQLUser is a test user for non-admin access to SQL Server and can RDP to the CLIENT
