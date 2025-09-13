@@ -1,4 +1,14 @@
-﻿<#
+﻿Param (
+    [string[]]$StartComputerName,
+    [string[]]$ConnectComputerName
+)
+
+<# Sample code to run this init script:
+. .\init_DockerDatabases.ps1
+. .\init_DockerDatabases.ps1 -Start CLIENT -Connect CLIENT
+#>
+
+<#
 
 This Skript will setup my lab with Azure virtual maschines for the multi database environment based on docker.
 
@@ -42,6 +52,10 @@ A set of [virtual maschines](https://docs.microsoft.com/en-us/azure/virtual-mach
 
 $ErrorActionPreference = 'Stop'
 
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "This script needs pwsh 7"
+}
+
 . .\MyAzureLab.ps1
 
 # Name of resource group and location
@@ -56,6 +70,26 @@ $initCredential = [PSCredential]::new($initUser, (ConvertTo-SecureString -String
 
 # Show state of the resource group
 Show-MyAzureLabResourceGroupInfo
+
+# Read the configuration
+. .\DockerDatabases\set_vm_config.ps1
+
+# Start VMs
+if ($StartComputerName) {
+    if ($StartComputerName -eq 'All') {
+        Start-MyAzureLabResourceGroup    
+    } else {
+        Start-MyAzureLabResourceGroup -OnlyComputerName $StartComputerName
+    }
+}
+
+# Connect to VMs (always use the admin credential in this case)
+if ($ConnectComputerName) {
+    Start-Sleep -Seconds 30
+    foreach ($computerName in $ConnectComputerName) {
+        Start-MyAzureLabRDP -ComputerName $computerName -Credential $adminCredential
+    }
+}
 
 # Don't do anything else
 break

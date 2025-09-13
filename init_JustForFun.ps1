@@ -1,4 +1,18 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿Param (
+    [string[]]$StartComputerName,
+    [string[]]$ConnectComputerName
+)
+
+<# Sample code to run this init script:
+. .\init_JustForFun.ps1
+. .\init_JustForFun.ps1 -Start WIN11, SRV2022 -Connect WIN11
+#>
+
+$ErrorActionPreference = 'Stop'
+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "This script needs pwsh 7"
+}
 
 . .\MyAzureLab.ps1
 
@@ -14,6 +28,26 @@ $initCredential = [PSCredential]::new($initUser, (ConvertTo-SecureString -String
 
 # Show state of the resource group
 Show-MyAzureLabResourceGroupInfo
+
+# Read the configuration
+# . .\<only for complex projects>\set_vm_config.ps1
+
+# Start VMs
+if ($StartComputerName) {
+    if ($StartComputerName -eq 'All') {
+        Start-MyAzureLabResourceGroup    
+    } else {
+        Start-MyAzureLabResourceGroup -OnlyComputerName $StartComputerName
+    }
+}
+
+# Connect to VMs (always use the admin credential in this case - only in this small lab use the initial credential)
+if ($ConnectComputerName) {
+    Start-Sleep -Seconds 30
+    foreach ($computerName in $ConnectComputerName) {
+        Start-MyAzureLabRDP -ComputerName $computerName -Credential $initCredential
+    }
+}
 
 # Don't do anything else
 break
