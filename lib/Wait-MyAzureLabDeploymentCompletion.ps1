@@ -11,7 +11,7 @@ function Wait-MyAzureLabDeploymentCompletion {
         try {
             while (1) {
                 $data = (Invoke-WebRequest -Uri $StatusURL).Content | ConvertFrom-Json
-                $data = $data | Where-Object { [datetime]$_.Time -gt $OnlyStatusAfter }  
+                $data = $data | Where-Object { [datetime]$_.Time -gt $OnlyStatusAfter -and $_.Host -ne 'localhost' }  
                 Clear-Host
                 Write-Host "Results from $StatusURL"
                 $data | Sort-Object Time | Format-Table -Property IP, Host, Time, Message -Wrap
