@@ -5,6 +5,7 @@ function New-MyAzureLabVM {
         [ValidateSet('WindowsServer2022', 'WindowsServer2025', 'Windows11', 'SQLServer2019', 'SQLServer2022', 'Ubuntu22', 'Ubuntu24', 'AlmaLinux8', 'AlmaLinux9')]
         [string]$SourceImage,
         [string]$VMSize = "Standard_B2s",
+        [Nullable[Int32]]$DiskSizeInGB,
         [PSCredential]$Credential,
         [switch]$TrustedLaunch,
         [switch]$EnableException
@@ -100,6 +101,8 @@ function New-MyAzureLabVM {
                 Offer         = "sql2022-ws2022"           # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
                 Skus          = "sqldev-gen2"              # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"                   # Get-AzVMImage -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer -Skus $sourceImageParam.Skus | Select Version
+                # RTM: 16.0.221108
+                # CU19: 16.0.250519
             }
         } elseif ($SourceImage -eq 'Ubuntu22') {
             $sourceImageParam = @{
@@ -107,8 +110,6 @@ function New-MyAzureLabVM {
                 Offer         = "0001-com-ubuntu-server-jammy"  # Get-AzVMImageOffer -Location $location -Publisher $sourceImageParam.PublisherName
                 Skus          = "22_04-lts-gen2"                # Get-AzVMImageSku -Location $location -Publisher $sourceImageParam.PublisherName -Offer $sourceImageParam.Offer | Select Skus
                 Version       = "latest"
-                # RTM: 16.0.221108
-                # CU19: 16.0.250519
             }
         } elseif ($SourceImage -eq 'Ubuntu24') {
             $sourceImageParam = @{
@@ -138,6 +139,9 @@ function New-MyAzureLabVM {
         $osDiskParam = @{
             Name         = "$($ComputerName)_Disk1.vhd"
             CreateOption = "FromImage"
+        }
+        if ($DiskSizeInGB) {
+            $osDiskParam.DiskSizeInGB = $DiskSizeInGB
         }
         $bootDiagnosticParam = @{
             Disable = $true
