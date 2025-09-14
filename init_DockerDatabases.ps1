@@ -61,7 +61,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 # Name of resource group and location
 # Will be used by MyAzureLab commands (so these are "global" variables)
 $resourceGroupName = 'DockerDatabases'
-$location          = 'West Europe'
+$location          = 'North Europe'
 
 # Name and password of the initial account
 $initUser     = 'initialAdmin'     # Will be used when creating the virtual maschines
@@ -70,9 +70,6 @@ $initCredential = [PSCredential]::new($initUser, (ConvertTo-SecureString -String
 
 # Show state of the resource group
 Show-MyAzureLabResourceGroupInfo
-
-# Read the configuration
-. .\DockerDatabases\set_vm_config.ps1
 
 # Start VMs
 if ($StartComputerName) {
@@ -87,7 +84,7 @@ if ($StartComputerName) {
 if ($ConnectComputerName) {
     Start-Sleep -Seconds 30
     foreach ($computerName in $ConnectComputerName) {
-        Start-MyAzureLabRDP -ComputerName $computerName -Credential $adminCredential
+        Start-MyAzureLabRDP -ComputerName $computerName -Credential $initCredential
     }
 }
 
@@ -103,10 +100,6 @@ break
 
 # Daily tasks if the lab is fully set up:
 #########################################
-
-# Import this file as the first task to set all needed variables:
-. .\init_dockerDatabases.ps1
-
 
 Start-MyAzureLabResourceGroup
 
