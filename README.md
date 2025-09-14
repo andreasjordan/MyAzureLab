@@ -127,12 +127,12 @@ Get-DbaDatabase -SqlInstance $server | Format-Table -AutoSize
 
 This script will setup my lab with Azure virtual maschines for a database environment based on docker.
 
-It uses code from my repo [PowerShell-for-DBAs](..\PowerShell-for-DBAs\README.md).
+It uses code from my repos [PowerShell-for-DBAs](..\PowerShell-for-DBAs\README.md) and [PowerShell-moves-Data-around](..\PowerShell-moves-Data-around\README.md).
 
 
 ## Security in the SQL Server Labs
 
-DOM\Admin is the Domain Admin
-DOM\User is just a Domain User that can RDP to the CLIENT
-DOM\SQLAdmin is the SQL Server Admin that is also local Windows Admin on SQLxxxx and can RDP to the CLIENT
-DOM\SQLUser is a test user for non-admin access to SQL Server and can RDP to the CLIENT
+* DOM\Admin is the Domain Admin
+* DOM\User is just a Domain User that can RDP to the CLIENT
+* DOM\SQLAdmin is the SQL Server Admin that is also local Windows Admin on SQLxxxx and can RDP to the CLIENT
+* DOM\SQLUser is a test user for non-admin access to SQL Server and can RDP to the CLIENT
