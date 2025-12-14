@@ -33,7 +33,7 @@ function Send-Status {
 
 Send-Status -Message 'Starting deployment'
 
-if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer")) {
+if (-not (Test-Path -Path "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer")) {
     try {
         Send-Status -Message 'Starting to fill file server with SQL Server sources'
 
@@ -41,15 +41,15 @@ if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software
         $adminPassword = $config.Domain.AdminPassword
         $adminCredential = [PSCredential]::new($adminAccountName, (ConvertTo-SecureString -String $adminPassword -AsPlainText -Force))
 
-        $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\ISO" -ItemType Directory
-        $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU" -ItemType Directory
-        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/andreasjordan/demos/master/dbatools/Get-CU.ps1' -OutFile "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1"
+        $null = New-Item -Path "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\ISO" -ItemType Directory
+        $null = New-Item -Path "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\CU" -ItemType Directory
+        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/andreasjordan/demos/master/dbatools/Get-CU.ps1' -OutFile "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1"
 
         foreach ($name in (Get-ADComputer -Filter 'Name -like "SQL20*"').Name) {
             Send-Status -Message "Starting to fill file server with SQL Server sources from $name"
             $session = New-PSSession -ComputerName $name -Credential $adminCredential -UseSSL -SessionOption (New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck)
             Invoke-Command -Session $session -ScriptBlock { $null = New-SmbShare -Path C:\SQLServerFull -Name SQLServerFull }
-            $destination = "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\ISO\$($name.Replace('SQL', 'SQLServer'))"
+            $destination = "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\ISO\$($name.Replace('SQL', 'SQLServer'))"
             $null = New-Item -Path $destination -ItemType Directory
             Copy-Item -Path "\\$name\SQLServerFull\*" -Destination $destination -Recurse
             $session | Remove-PSSession
@@ -57,19 +57,19 @@ if (-not (Test-Path -Path "$($config.FileServerDriveLetter):\FileServer\Software
             # if ((Get-Module -ListAvailable).Name -notcontains 'dbatools') {
             #     Install-Module -Name dbatools
             # }
-            # & "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\CU"
+            # & "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\CU"
         }
 
         Send-Status -Message 'Starting to fill file server with SQL Server sample databases'
-        $null = New-Item -Path "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases" -ItemType Directory
-        ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2022.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2022.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2019.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2019.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2017.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2017.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2016.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2016.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2014.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2014.bak")
-        ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2012.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2012.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/wide-world-importers-v1.0/WideWorldImporters-Full.bak', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\WideWorldImporters-Full.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://downloads.brentozar.com/StackOverflow2010.7z', "$($config.FileServerDriveLetter):\FileServer\Software\SQLServer\SampleDatabases\StackOverflow2010.7z")
+        $null = New-Item -Path "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases" -ItemType Directory
+        ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2022.bak', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2022.bak")
+        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2019.bak', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2019.bak")
+        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2017.bak', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2017.bak")
+        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2016.bak', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2016.bak")
+        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2014.bak', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2014.bak")
+        ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2012.bak', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\AdventureWorks2012.bak")
+        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/wide-world-importers-v1.0/WideWorldImporters-Full.bak', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\WideWorldImporters-Full.bak")
+        #([System.Net.WebClient]::new()).DownloadFile('https://downloads.brentozar.com/StackOverflow2010.7z', "$($config.FileServer.DriveLetter):\FileServer\Software\SQLServer\SampleDatabases\StackOverflow2010.7z")
 
         Send-Status -Message 'Finished to fill file server with SQL Server sources'
     } catch {
