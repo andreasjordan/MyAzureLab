@@ -6,6 +6,7 @@
 <# Sample code to run this init script:
 . .\init_SQLServerLab.ps1
 . .\init_SQLServerLab.ps1 -Start DC, CLIENT -Connect CLIENT
+. .\init_SQLServerLab.ps1 -Start All -Connect CLIENT
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -49,6 +50,9 @@ if ($ConnectComputerName) {
     }
 }
 
+# Try to set TLS 1.2 fix to avoid errors with Azure modules (The SSL connection could not be established / An error occurred while sending the request)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 # Don't do anything else
 break
 
@@ -69,11 +73,10 @@ Stop-MyAzureLabResourceGroup
 Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.Admin
 
 
-Start-MyAzureLabRDP -ComputerName SERVER -Credential $initCredential
+Start-MyAzureLabRDP -ComputerName CLIENT -Credential $initCredential
 
-$psSession = New-MyAzureLabSession -ComputerName SERVER -Credential $initCredential
+$psSession = New-MyAzureLabSession -ComputerName CLIENT -Credential $initCredential
 $psSession | Remove-PSSession
-
 
 
 # Tasks to create and remove virtual maschines:
@@ -86,7 +89,7 @@ $psSession | Remove-PSSession
 . .\SQLServerLab\create_VMs.ps1
 
 
-
+ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12
 
 ##########
 Write-PSFMessage -Level Host -Message 'Part 5: Connecting to client'
@@ -97,7 +100,7 @@ Write-PSFMessage -Level Host -Message 'Part 5: Connecting to client'
 
 Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.SQLAdmin
 
-
+Start-MyAzureLabRDP -ComputerName DC -Credential $credentials.Admin
 
 
 
@@ -107,19 +110,16 @@ Start-MyAzureLabRDP -ComputerName CLIENT -Credential $credentials.SQLAdmin
 Start-MyAzureLabRDP -ComputerName SQL01 -Credential $credentials.Admin
 
 
-# powershell as administrator on SQL01:
-choco install git vscode sql-server-management-studio --confirm --limitoutput --no-progress
-Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft SQL Server Tools*\SQL Server Management Studio*.lnk' -Destination C:\Users\Public\Desktop
-Restart-Computer -Force
-
-Install-Module -Name Pester -Force -SkipPublisherCheck -MaximumVersion 4.99
+# powershell as administrator on CLIENT:
+Install-Module -Name Pester -Force -SkipPublisherCheck
 Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -MaximumVersion 1.18.2
-Install-Module -Name dbatools.library -Force
 
-$null = New-Item -Path C:\GitHub\dataplat -ItemType Directory
-Push-Location -Path C:\GitHub\dataplat
+# powershell on CLIENT:
+$null = New-Item -Path C:\GitHub -ItemType Directory
+Push-Location -Path C:\GitHub
 git clone --quiet https://github.com/dataplat/dbatools.git
 git clone --quiet https://github.com/dataplat/appveyor-lab.git
+git clone --quiet https://github.com/andreasjordan/testing-dbatools.git
 Pop-Location
 
 $ErrorActionPreference = 'Stop'
