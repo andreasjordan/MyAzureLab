@@ -508,3 +508,7 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
         Write-Warning -Message $message
     }
 }
+
+Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03 -ActivityName 'Downloading repositories' -ScriptBlock { 
+    Set-NetFirewallProfile -Profile Domain, Public, Private -Enabled False
+}
