@@ -45,9 +45,9 @@ function Invoke-MyAzureLabDeployment {
                             Action   = New-ScheduledTaskAction @scheduledTaskActionParams
                         }
                         $null = Register-ScheduledTask @scheduledTaskParams
+
+                        Start-ScheduledTask -TaskName DeploymentAtStartup
                     }
-    
-                    Start-ScheduledTask -TaskName DeploymentAtStartup
                 }
             } elseif ($ScriptBlock) {
                 $commandParams.ScriptBlock = $ScriptBlock
