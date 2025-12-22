@@ -28,6 +28,28 @@ $null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
 #>
 
 
+function Send-Status {
+    Param([string]$Message)
+    if ($env:MyStatusUrl) {
+        $requestParams = @{
+            Uri             = $env:MyStatusUrl
+            Method          = 'Post'
+            ContentType     = 'application/json'
+            Body            = @{
+                IP      = '127.0.0.1'
+                Host    = 'localhost'
+                Message = $Message
+            } | ConvertTo-Json -Compress
+            UseBasicParsing = $true
+        }
+        try {
+            $null = Invoke-WebRequest @requestParams
+        } catch {
+            Write-Warning -Message "Failed to send status: $_"
+        }
+    }
+}
+
 $LabDnsServer     = '1.1.1.1'
 
 $MachineDefinitionDefaults = @{
@@ -38,7 +60,6 @@ $MachineDefinitionDefaults = @{
     Gateway         = "$LabNetworkBase.1"
     DomainName      = $LabDomainName
     TimeZone        = 'W. Europe Standard Time'
-    UserLocale      = 'de-de'
 }
 
 $MachineDefinition = @(
@@ -51,7 +72,7 @@ $MachineDefinition = @(
     @{
         Name            = 'ADMIN01'
         IpAddress       = "$LabNetworkBase.20"
-        Memory          = 8GB
+        Memory          = 4GB
     }
     @{
         Name            = 'SQL01'
@@ -154,9 +175,10 @@ $ChocolateyPackages = @(
     'powershell-core'
     'notepadplusplus'
     '7zip'
+    'git'
     'vscode'
-    'vscode-powershell'
     'sql-server-management-studio'
+    'sqlcmd'
 )
 
 $PowerShellModules = @(
@@ -167,6 +189,8 @@ $PowerShellModules = @(
 
 
 ### End of configuration ###
+
+Send-Status -Message "Installing Lab"
 
 New-LabDefinition -Name $LabName -DefaultVirtualizationEngine HyperV
 Set-LabInstallationCredential -Username $LabAdminUser -Password $LabAdminPassword
@@ -196,7 +220,8 @@ Invoke-LabCommand -ComputerName (Get-LabVM) -ActivityName 'Disable Windows updat
 
 
 
-# Configure the AD including GPOs
+# Configure the AD
+Send-Status -Message "Configure the AD"
 Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareDomain' -ArgumentList $LabAdminPassword -ScriptBlock {
     param ($Password)
 
@@ -266,6 +291,7 @@ Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareDomain' -ArgumentList $
 }
 
 
+Send-Status -Message "PrepareFileserver"
 foreach ($folder in $FileServerFolder) {
     # $folder = $fileServerConfig.Folder[0]
 
@@ -327,6 +353,7 @@ Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareFileserver' -ScriptBloc
     Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $dnsRoot -HostNameAlias dc.$dnsRoot -Name fs
 }
 
+Send-Status -Message "Install RSAT"
 Install-LabWindowsFeature -ComputerName ADMIN01 -FeatureName RSAT-Clustering, RSAT-AD-Tools -IncludeAllSubFeature
 Restart-LabVM -ComputerName ADMIN01 -Wait
 Start-Sleep -Seconds 30
@@ -348,6 +375,7 @@ if (-not $pingSucceeded) {
     }
 }
 
+Send-Status -Message "Installing chocolatey packages"
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing chocolatey packages' -ArgumentList @(, $ChocolateyPackages) -ScriptBlock { 
     param($ChocolateyPackages)
 
@@ -377,6 +405,7 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing chocolatey pac
     }
 }
 
+Send-Status -Message "Installing PowerShell modules"
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing PowerShell modules' -ArgumentList @(, $PowerShellModules) -ScriptBlock { 
     param($PowerShellModules)
 
@@ -421,6 +450,7 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing PowerShell mod
     }
 }
 
+Send-Status -Message "Downloading SQL Server CUs"
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading SQL Server CUs' -ScriptBlock { 
     $logPath = 'C:\DeployDebug\DownloadCUs.log'
 
@@ -436,6 +466,7 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading SQL Server CU
     }
 }
 
+Send-Status -Message "Setting up CredSSP"
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting up CredSSP' -ScriptBlock { 
     $logPath = 'C:\DeployDebug\SetupCredSSP.log'
 
@@ -454,22 +485,8 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting up CredSSP' -Scri
     }
 }
 
-
-Stop-LabVM -All
-Start-Sleep -Seconds 10
-Checkpoint-VM -Name $LabName-* -SnapshotName Level0
-Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All
-Start-Sleep -Seconds 30
-
-<#
-
-Stop-VM -Name $LabName-*
-Get-VMSnapshot -VMName $LabName-* -Name Level0 | Restore-VMSnapshot -Confirm:$false
-Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All
-
-#>
-
-
+Send-Status -Message "Downloading repositories"
+Get-PSSession | Remove-PSSession
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories' -ScriptBlock { 
     $logPath = 'C:\DeployDebug\DownloadDemos.log'
 
@@ -478,29 +495,11 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
     try {
         $null = New-Item -Path C:\GitHub -ItemType Directory
 
-        Invoke-WebRequest -Uri https://github.com/andreasjordan/demos/archive/refs/heads/master.zip -OutFile C:\GitHub\master.zip -UseBasicParsing
-        Expand-Archive -Path C:\GitHub\master.zip -DestinationPath C:\GitHub
-        Rename-Item C:\GitHub\demos-master -NewName demos
-        Remove-Item C:\GitHub\master.zip
-
-        Invoke-WebRequest -Uri https://github.com/dataplat/dbatools/archive/refs/heads/development.zip -OutFile C:\GitHub\development.zip -UseBasicParsing
-        Expand-Archive -Path C:\GitHub\development.zip -DestinationPath C:\GitHub
-        Rename-Item C:\GitHub\dbatools-development -NewName dbatools
-        Remove-Item C:\GitHub\development.zip
-
-        Invoke-WebRequest -Uri https://github.com/dataplat/dbatools/archive/refs/tags/v2.1.5.zip -OutFile C:\GitHub\release.zip -UseBasicParsing
-        Expand-Archive -Path C:\GitHub\release.zip -DestinationPath C:\GitHub
-        Remove-Item C:\GitHub\release.zip
-
-        Invoke-WebRequest -Uri https://github.com/andreasjordan/testing-dbatools/archive/refs/heads/main.zip -OutFile C:\GitHub\main.zip -UseBasicParsing
-        Expand-Archive -Path C:\GitHub\main.zip -DestinationPath C:\GitHub
-        Rename-Item C:\GitHub\testing-dbatools-main -NewName testing-dbatools
-        Remove-Item C:\GitHub\main.zip
-
-        Invoke-WebRequest -Uri https://github.com/dataplat/appveyor-lab/archive/refs/heads/master.zip -OutFile C:\GitHub\master.zip -UseBasicParsing
-        Expand-Archive -Path C:\GitHub\master.zip -DestinationPath C:\GitHub
-        Rename-Item C:\GitHub\appveyor-lab-master -NewName appveyor-lab
-        Remove-Item C:\GitHub\master.zip
+        Set-Location -Path C:\GitHub
+        git clone --quiet https://github.com/dataplat/dbatools.git
+        git clone --quiet https://github.com/dataplat/appveyor-lab.git
+        git clone --quiet https://github.com/andreasjordan/testing-dbatools.git
+        git clone --quiet https://github.com/andreasjordan/demos.git
         Copy-Item -Path C:\GitHub\appveyor-lab\* -Destination \\fs\appveyor-lab -Recurse
     } catch {
         $message = "Downloading demo repository failed: $_"
@@ -509,6 +508,40 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
     }
 }
 
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Enabling german keyboard' -ScriptBlock { 
+    Set-WinUserLanguageList -LanguageList @('en-US','de-DE') -Force
+}
+
 Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03 -ActivityName 'Downloading repositories' -ScriptBlock { 
     Set-NetFirewallProfile -Profile Domain, Public, Private -Enabled False
 }
+
+Get-PSSession | Remove-PSSession
+
+Send-Status -Message "Installing instances"
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing instances' -ScriptBlock { 
+    C:\GitHub\testing-dbatools\install_remote_instances.ps1
+}
+
+
+
+if ($env:MyStatusURL) {
+    Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment variable MyStatusURL' -ArgumentList $env:MyStatusURL -ScriptBlock { 
+         [Environment]::SetEnvironmentVariable('MyStatusURL', $args[0], 'Machine')
+    }
+}
+
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment variable MyConfigFilename' -ArgumentList 'TestConfig_remote_instances.ps1' -ScriptBlock { 
+     [Environment]::SetEnvironmentVariable('MyConfigFilename', $args[0], 'Machine')
+}
+
+Restart-LabVM -ComputerName ADMIN01 -Wait
+
+$ip = "$LabNetworkBase.20"
+$user = $LabAdminUser + '@' + $LabDomainName
+$pass = $LabAdminPassword
+$null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
+
+mstsc /v:$LabNetworkBase.20
+
+Send-Status -Message "Finished"
