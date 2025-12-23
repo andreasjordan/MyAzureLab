@@ -71,17 +71,6 @@ Start-MyAzureLabRDP -ComputerName BASE -Credential $initCredential
 $psSession = New-MyAzureLabSession -ComputerName BASE -Credential $initCredential
 $psSession | Remove-PSSession
 
-$labScripts = @(
-    'AlwaysOn_AG.ps1'
-    'TestingDbatools.ps1'
-)
-$psSession = New-MyAzureLabSession -ComputerName BASE -Credential $initCredential
-foreach ($labScript in $labScripts) {
-    $labScriptContent = Get-Content -Path ".\HyperVLab\$labScript" -Raw
-    Invoke-Command -Session $psSession -ScriptBlock { if (-not (Test-Path -Path C:\LabScripts)) { $null = New-Item -Path C:\LabScripts -ItemType Directory } }
-    Invoke-Command -Session $psSession -ScriptBlock { param($script, $name) Set-Content -Path "C:\LabScripts\$name" -Value $script } -ArgumentList $labScriptContent, $labScript
-}
-$psSession | Remove-PSSession
 
 
 
@@ -98,7 +87,7 @@ Start-MyAzureLabRDP -ComputerName BASE -Credential $initCredential
 # Tasks to resize the virtual maschine:
 #######################################
 
-$vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name BASE
+$vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name BASE_VM
 $result = $vm | Stop-AzVM -Force
 $result.Status  # Should be 'Succeeded'
 $vm.HardwareProfile.VmSize = 'Standard_E4s_v6'
@@ -106,7 +95,6 @@ $result = Update-AzVM -ResourceGroupName $resourceGroupName -VM $vm
 $result.IsSuccessStatusCode  # Should be True
 $result = $vm | Start-AzVM
 $result.Status  # Should be 'Succeeded'
-
 
 
 

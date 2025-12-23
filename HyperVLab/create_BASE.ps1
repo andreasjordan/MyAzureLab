@@ -1,11 +1,39 @@
 # This file should be included from ..\init_HyperVLab.ps1
 
-Write-PSFMessage -Level Host -Message 'Creating virtual maschine BASE'
+function Send-Status {
+    Param([string]$Message)
+    Write-PSFMessage -Level Host -Message $Message
+    if ($env:MyStatusUrl) {
+        $requestParams = @{
+            Uri             = $env:MyStatusUrl
+            Method          = 'Post'
+            ContentType     = 'application/json'
+            Body            = @{
+                IP      = '127.0.0.1'
+                Host    = 'localhost'
+                Message = $Message
+            } | ConvertTo-Json -Compress
+            UseBasicParsing = $true
+        }
+        try {
+            $null = Invoke-WebRequest @requestParams
+        } catch {
+            Write-Warning -Message "Failed to send status: $_"
+        }
+    }
+}
+
+trap {
+    Send-Status -Message "Error in create_BASE.ps1: $_"
+    throw $_
+}
+
+Send-Status -Message 'Creating virtual maschine BASE'
 
 New-MyAzureLabVM -ComputerName BASE -SourceImage WindowsServer2022 -VMSize Standard_E4s_v6 -Credential $initCredential -TrustedLaunch -EnableException
 
 
-Write-PSFMessage -Level Host -Message 'Configuring HyperV on BASE'
+Send-Status -Message 'Configuring HyperV on BASE'
 
 $psSession = New-MyAzureLabSession -ComputerName BASE -Credential $initCredential
 Invoke-Command -Session $psSession -ErrorAction Stop -ScriptBlock {
@@ -15,10 +43,10 @@ Invoke-Command -Session $psSession -ErrorAction Stop -ScriptBlock {
     Restart-Computer -Force
 }
 $psSession | Remove-PSSession
-Start-Sleep -Seconds 60
+Start-Sleep -Seconds 120
 
 
-Write-PSFMessage -Level Host -Message 'Installing AutomatedLab on BASE'
+Send-Status -Message 'Installing AutomatedLab on BASE'
 
 $psSession = New-MyAzureLabSession -ComputerName BASE -Credential $initCredential
 Invoke-Command -Session $psSession -ErrorAction Stop -ScriptBlock {
@@ -38,10 +66,6 @@ Invoke-Command -Session $psSession -ErrorAction Stop -ScriptBlock {
         if (-not (Get-Module -Name Posh-SSH -ListAvailable)) {
             Install-Module -Name Posh-SSH
         }
-        [Environment]::SetEnvironmentVariable('AUTOMATEDLAB_TELEMETRY_OPTIN', 'false', 'Machine')
-        $env:AUTOMATEDLAB_TELEMETRY_OPTIN = 'false'
-        Set-PSFConfig -Module AutomatedLab -Name LabSourcesLocation -Description 'Location of lab sources folder' -Validation string -Value 'C:\AutomatedLab-Sources' -PassThru | Register-PSFConfig
-        Set-PSFConfig -Module AutomatedLab -Name VmPath             -Description 'Location of lab vm folder'      -Validation string -Value 'C:\AutomatedLab-VMs'     -PassThru | Register-PSFConfig
         Import-Module -Name AutomatedLab
         New-LabSourcesFolder *> $null
         Enable-LabHostRemoting -Force *> $null
@@ -54,7 +78,7 @@ Invoke-Command -Session $psSession -ErrorAction Stop -ScriptBlock {
 $psSession | Remove-PSSession
 
 
-Write-PSFMessage -Level Host -Message 'Downloading ISOs to BASE'
+Send-Status -Message 'Downloading ISOs to BASE'
 
 $downloads = @(
     @{ Name = 'Windows2025'   ; URL = $Env:MyWIN2025URL ; FileName = 'WindowsServer2025_x64_EN_Eval.iso' }
@@ -70,7 +94,7 @@ Invoke-Command -Session $psSession -ErrorAction Stop -ArgumentList $Env:MyWIN202
     Import-Module -Name AutomatedLab
 }
 foreach ($dl in $downloads) {
-    Write-PSFMessage -Level Host -Message "Downloading $($dl.Name)"
+    Send-Status -Message "Downloading $($dl.Name)"
     Invoke-Command -Session $psSession -ErrorAction Stop -ArgumentList $dl.URL, $dl.FileName -ScriptBlock {
         param ($url, $fileName)
         ([System.Net.WebClient]::new()).DownloadFile($url, "$labSources\ISOs\$fileName")
@@ -79,7 +103,7 @@ foreach ($dl in $downloads) {
 $psSession | Remove-PSSession
 
 
-Write-PSFMessage -Level Host -Message 'Configuring BASE'
+Send-Status -Message 'Configuring BASE'
 
 $labScripts = @(
     'AlwaysOn_AG.ps1'
@@ -100,6 +124,23 @@ if ($env:MyStatusURL) {
     $psSession | Remove-PSSession
 }
 
+$psSession = New-MyAzureLabSession -ComputerName BASE -Credential $initCredential
+Invoke-Command -Session $psSession -ErrorAction Stop -ScriptBlock {
+    $ErrorActionPreference = 'Stop'
+    $scheduledTaskActionParams = @{
+        Execute  = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+        Argument = '-ExecutionPolicy RemoteSigned -NonInteractive -File C:\LabScripts\TestingDbatools.ps1'
+    }
+    $scheduledTaskParams = @{
+        TaskName = 'DeploymentAtStartup'
+        Trigger  = New-ScheduledTaskTrigger -AtStartup
+        User     = 'SYSTEM'
+        Action   = New-ScheduledTaskAction @scheduledTaskActionParams
+    }
+    $null = Register-ScheduledTask @scheduledTaskParams
+}
+$psSession | Remove-PSSession
+
 Restart-MyAzureLabVM -ComputerName BASE
 
-Write-PSFMessage -Level Host -Message 'Finished creating virtual maschine BASE'
+Send-Status -Message 'Finished creating virtual maschine BASE'

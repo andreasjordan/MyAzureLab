@@ -1,5 +1,7 @@
 $ErrorActionPreference = 'Continue'
 
+Start-Transcript -Path "$PSScriptRoot\transcript-$([datetime]::Now.ToString('yyyy-MM-dd-HH-mm-ss')).txt"
+
 Import-Module -Name AutomatedLab
 
 $LabName          = 'TestingDbatools'
@@ -24,6 +26,9 @@ $ip = "$LabNetworkBase.20"
 $user = $LabAdminUser + '@' + $LabDomainName
 $pass = $LabAdminPassword
 $null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
+
+# cmdkey /add:TERMSRV/192.168.3.20 /user:Admin@ordix.local /pass:P@ssw0rd
+# mstsc /v:192.168.3.20
 
 #>
 
@@ -72,7 +77,7 @@ $MachineDefinition = @(
     @{
         Name            = 'ADMIN01'
         IpAddress       = "$LabNetworkBase.20"
-        Memory          = 4GB
+        Memory          = 8GB
     }
     @{
         Name            = 'SQL01'
@@ -508,11 +513,13 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
     }
 }
 
+Send-Status -Message "Enabling german keyboard"
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Enabling german keyboard' -ScriptBlock { 
     Set-WinUserLanguageList -LanguageList @('en-US','de-DE') -Force
 }
 
-Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03 -ActivityName 'Downloading repositories' -ScriptBlock { 
+Send-Status -Message "Disabling firewall"
+Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03 -ActivityName 'Disabling firewall' -ScriptBlock { 
     Set-NetFirewallProfile -Profile Domain, Public, Private -Enabled False
 }
 
@@ -537,11 +544,15 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment varia
 
 Restart-LabVM -ComputerName ADMIN01 -Wait
 
-$ip = "$LabNetworkBase.20"
-$user = $LabAdminUser + '@' + $LabDomainName
-$pass = $LabAdminPassword
-$null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
+try {
+    Send-Status -Message 'Starting to remove startup task'
 
-mstsc /v:$LabNetworkBase.20
+    Unregister-ScheduledTask -TaskName DeploymentAtStartup -Confirm:$false
+
+    Send-Status -Message 'Finished to remove startup task'
+} catch {
+    Send-Status -Message "Failed to remove startup task: $_"
+    return
+}
 
 Send-Status -Message "Finished"
