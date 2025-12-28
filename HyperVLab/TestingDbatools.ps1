@@ -35,6 +35,7 @@ $null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
 
 function Send-Status {
     Param([string]$Message)
+    Add-Content -Path "$PSScriptRoot\status.txt" -Value "$([datetime]::Now.ToString('yyyy-MM-dd HH:mm:ss')) - $Message"
     if ($env:MyStatusUrl) {
         $requestParams = @{
             Uri             = $env:MyStatusUrl
