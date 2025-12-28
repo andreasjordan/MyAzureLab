@@ -2,22 +2,19 @@ function New-MyAzureLabSession {
     [CmdletBinding()]
     Param(
         [string]$ComputerName,
-        [string]$IPAddress,
         [PSCredential]$Credential,
         [int]$Timeout = 600,
         [switch]$EnableException
     )
 
-    if ($ComputerName) {
-        $IPAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
-        Write-PSFMessage -Level Verbose -Message "Using IP address $IPAddress"
-    }
+    $ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+    Write-PSFMessage -Level Verbose -Message "Using IP address $ipAddress"
 
     $vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_VM"
     if ($vm.OSProfile.WindowsConfiguration) {
         $vmIsWindows = $true
         $psSessionParam = @{
-            ConnectionUri  = "https://$($IPAddress):5986"
+            ConnectionUri  = "https://$($ipAddress):5986"
             Credential     = $Credential
             SessionOption  = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
             Authentication = "Negotiate"
@@ -25,7 +22,7 @@ function New-MyAzureLabSession {
     } elseif ($vm.OSProfile.LinuxConfiguration) {
         $vmIsLinux = $true
         $sshSessionParam = @{
-            ComputerName = $IPAddress
+            ComputerName = $ipAddress
             Credential   = $Credential
             AcceptKey    = $true
         }
