@@ -8,6 +8,7 @@ function New-MyAzureLabVM {
         [Nullable[Int32]]$DiskSizeInGB,
         [PSCredential]$Credential,
         [switch]$TrustedLaunch,
+        [switch]$AutomatedLab,
         [switch]$EnableException
     )
 
@@ -169,7 +170,7 @@ function New-MyAzureLabVM {
 
             try {
                 Write-PSFMessage -Level Verbose -Message 'Testing VM'
-                $vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmConfigParam.VMName
+                $null = Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmConfigParam.VMName
             } catch {
                 Write-PSFMessage -Level Verbose -Message 'Creating VMConfig'
                 $vmConfig = New-AzVMConfig @vmConfigParam
@@ -252,6 +253,31 @@ function New-MyAzureLabVM {
                 Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
                 Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y install https://github.com/PowerShell/PowerShell/releases/download/v7.5.0/powershell-7.5.0-1.rh.x86_64.rpm' -EnableException
             }
+
+            if ($AutomatedLab) {
+                # The following commands are idempotent, so we don't test
+
+                Write-PSFMessage -Level Verbose -Message 'Installing HyperV'
+                Invoke-MyAzureLabCommand -ComputerName $ComputerName -Credential $Credential -ScriptBlock {
+                    $ProgressPreference = 'SilentlyContinue'
+                    $null = Install-WindowsFeature -Name Hyper-V -IncludeManagementTools -WarningAction SilentlyContinue
+                    Restart-Computer -Force
+                } -EnableException
+                Start-Sleep -Seconds 120
+
+                Write-PSFMessage -Level Verbose -Message 'Installing AutomatedLab'
+                Invoke-MyAzureLabCommand -ComputerName $ComputerName -Credential $Credential -ScriptBlock {
+                    $ProgressPreference = 'SilentlyContinue'
+                    [System.Threading.Thread]::CurrentThread.CurrentUICulture = 'en-US'
+                    $null = Install-PackageProvider -Name NuGet -Force
+                    Install-Module -Name AutomatedLab -AllowClobber -SkipPublisherCheck -Force
+                    New-LabSourcesFolder *> $null
+                    Enable-LabHostRemoting -Force *> $null
+                    $null = reg add "HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client" /v "AuthenticationLevelOverride" /t "REG_DWORD" /d 0 /f
+                } -EnableException
+            }
+
+            Write-PSFMessage -Level Verbose -Message "Successfully created VM $ComputerName"
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
         }
