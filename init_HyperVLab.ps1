@@ -1,10 +1,12 @@
 ﻿Param (
+    [string[]]$CreateComputerName,
     [string[]]$StartComputerName,
     [string[]]$ConnectComputerName
 )
 
 <# Sample code to run this init script:
 . .\init_HyperVLab.ps1
+. .\init_HyperVLab.ps1 -Create BASE -Connect BASE
 . .\init_HyperVLab.ps1 -Start BASE -Connect BASE
 #>
 
@@ -28,6 +30,30 @@ $initCredential = [PSCredential]::new($initUser, (ConvertTo-SecureString -String
 
 # Show state of the resource group
 Show-MyAzureLabResourceGroupInfo
+
+# Configuration for the lab
+$labConfig = @{
+    LabScript            = @{
+        Name    = 'TestingDbatools.ps1'
+        Content = Get-Content -Path ".\HyperVLab\TestingDbatools.ps1" -Raw
+    }
+    ISODownloads         = @(
+        @{ Name = 'Windows2025'   ; URL = $Env:MyWIN2025URL ; FileName = 'WindowsServer2025_x64_EN_Eval.iso' }
+        @{ Name = 'SQLServer2025' ; URL = $Env:MySQL2025URL ; FileName = 'SQLServer2025-x64-ENU.iso' }
+        @{ Name = 'SQLServer2022' ; URL = $Env:MySQL2022URL ; FileName = 'enu_sql_server_2022_developer_edition_x64_dvd_7cacf733.iso' }
+        @{ Name = 'SQLServer2019' ; URL = $Env:MySQL2019URL ; FileName = 'en_sql_server_2019_developer_x64_dvd_e5ade34a.iso' }
+    )
+    EnvironmentVariables = @{
+        MyStatusURL = $env:MyStatusURL
+    }
+}
+
+# Start VMs
+if ($CreateComputerName) {
+    foreach ($computerName in $CreateComputerName) {
+        . .\HyperVLab\create_$computerName.ps1
+    }
+}
 
 # Start VMs
 if ($StartComputerName) {
