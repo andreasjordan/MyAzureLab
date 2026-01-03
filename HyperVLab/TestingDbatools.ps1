@@ -516,7 +516,7 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
 
 Send-Status -Message "Enabling german keyboard"
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Enabling german keyboard' -ScriptBlock { 
-    Set-WinUserLanguageList -LanguageList @('en-US','de-DE') -Force
+    Set-WinUserLanguageList -LanguageList de-DE, en-US -Force -WarningAction SilentlyContinue
 }
 
 Send-Status -Message "Disabling firewall"
