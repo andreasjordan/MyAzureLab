@@ -52,6 +52,12 @@ $vmConfig = [ordered]@{
             BaseFolder  = 'FileServer'
             Shares      = @(
                 [PSCustomObject]@{
+                    Name         = 'Applikationen'
+                    Folder       = 'Applikationen'
+                    FullAccess   = @("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)")
+                    ChangeAccess = @('Everyone')
+                }
+                [PSCustomObject]@{
                     Name         = 'Software'
                     Folder       = 'Software'
                     FullAccess   = @("$($domainConfig.NetbiosName)\$($domainConfig.AdminName)")
@@ -73,17 +79,17 @@ $vmConfig = [ordered]@{
             Downloads    = @(
                 [PSCustomObject]@{
                     Url    = $Env:MyOracleWindowsDbHomeURL
-                    Folder = 'Software\Oracle'
+                    Folder = 'Applikationen\Oracle-Oracle\Software\Oracle_DB_19'
                     File   = 'WINDOWS.X64_193000_db_home.zip'
                 }
                 [PSCustomObject]@{
                     Url    = $Env:MyOracleWindowsOPatchURL
-                    Folder = 'Software\Oracle'
+                    Folder = 'Applikationen\Oracle-Oracle\Software\Oracle_DB_19\Oracle_Opatch_Software'
                     File   = 'p6880880_190000_MSWIN-x86-64.zip'
                 }
                 [PSCustomObject]@{
                     Url    = $Env:MyOracleWindowsPatch37532350URL
-                    Folder = 'Software\Oracle'
+                    Folder = 'Applikationen\Oracle-Oracle\Software\Oracle_DB_19\DB_Patch'
                     File   = 'p37532350_190000_MSWIN-x86-64.zip'
                 }
                 [PSCustomObject]@{
