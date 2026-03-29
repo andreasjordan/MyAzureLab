@@ -12,7 +12,7 @@ function Start-MyAzureLabRDP {
             $user = $Credential.UserName
             $pass = $Credential.GetNetworkCredential().Password
             $null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
-            mstsc /v:$ip
+            mstsc /v:$ip /w:1920 /h:1080
             $target = [datetime]::Now.AddSeconds(15)
             while ([datetime]::Now -lt $target) {
                 Start-Sleep -Milliseconds 100
