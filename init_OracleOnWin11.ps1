@@ -74,6 +74,48 @@ Start-MyAzureLabRDP -ComputerName CLIENT1 -Credential $credentials.Admin
 Start-MyAzureLabRDP -ComputerName CLIENT2 -Credential $credentials.Admin
 
 
+$session = New-MyAzureLabSession -ComputerName CLIENT1 -Credential $credentials.Admin
+Invoke-Command -Session $session -ScriptBlock {
+    Set-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced -Name HideFileExt -Value 0
+    Set-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced -Name NavPaneShowAllFolders -Value 1
+    Set-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced -Name NavPaneExpandToCurrentFolder -Value 1
+}
+$session | Remove-PSSession
+
+$session = New-MyAzureLabSession -ComputerName CLIENT1 -Credential $credentials.Admin
+Invoke-Command -Session $session -ScriptBlock {
+    $null = New-NetFirewallRule -DisplayName 'Java(TM) Platform SE binary' -Program C:\oracle\product\dbhome_19\jdk\jre\bin\java.exe -Direction Inbound -Profile Domain -Protocol TCP -Enabled True
+    $null = New-NetFirewallRule -DisplayName 'Java(TM) Platform SE binary' -Program C:\oracle\product\dbhome_19\jdk\jre\bin\java.exe -Direction Inbound -Profile Domain -Protocol UDP -Enabled True
+}
+$session | Remove-PSSession
+
+
+$session = New-MyAzureLabSession -ComputerName CLIENT1 -Credential $credentials.Admin
+Invoke-Command -Session $session -ScriptBlock {
+    $null = Install-Language -Language de-DE
+    Set-WinUILanguageOverride -Language de-DE
+    Set-WinUserLanguageList (New-WinUserLanguageList de-DE) -Force -WarningAction SilentlyContinue
+    Set-WinSystemLocale de-DE
+    Set-Culture de-DE
+    Set-WinHomeLocation -GeoId 94
+    Copy-UserInternationalSettingsToSystem -WelcomeScreen $true -NewUser $true
+}
+$session | Remove-PSSession
+
+$session = New-MyAzureLabSession -ComputerName DC -Credential $credentials.Admin
+Invoke-Command -Session $session -ScriptBlock {
+    Add-Type -Assembly "System.IO.Compression.Filesystem"
+    $basePath = 'C:\FileServer\Applikationen\Oracle-Oracle\Software\Oracle_DB_19'
+    $null = New-Item -Path "$basePath\Opatch_Software\p6880880_190000_MSWIN-x86-64" -ItemType Directory
+    [System.IO.Compression.ZipFile]::ExtractToDirectory("$basePath\Opatch_Software\p6880880_190000_MSWIN-x86-64.zip", "$basePath\Opatch_Software\p6880880_190000_MSWIN-x86-64")
+    [System.IO.Compression.ZipFile]::ExtractToDirectory("$basePath\DB_Patch\p37532350_190000_MSWIN-x86-64.zip", "$basePath\DB_Patch")
+}
+$session | Remove-PSSession
+
+
+
+
+
 
 # Tasks to create and remove virtual maschines:
 ###############################################
