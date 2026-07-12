@@ -8,14 +8,14 @@ function Show-MyAzureLabResourceGroupInfo {
         if (Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue) {
             $resources = Get-AzResource -ResourceGroupName $resourceGroupName
             if ($resources) {
-                Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName containes these resources:"
+                Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName contains these resources:"
                 $resources | Format-Table -Property Name, ResourceType
                 $vms = Get-AzVM -ResourceGroupName $resourceGroupName
                 if ($vms) {
-                    Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName contains these virtual maschines:"
+                    Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName contains these virtual machines:"
                     Get-AzVM -ResourceGroupName $resourceGroupName -Status | Format-Table -Property Name, PowerState
                 } else {
-                    Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName does not contain any virtual maschines."
+                    Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName does not contain any virtual machines."
                 }
                 $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName
                 if ($nsg) {
