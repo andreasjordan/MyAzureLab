@@ -18,13 +18,18 @@ function Invoke-MyAzureLabPart1 {
 
             if (Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue) {
                 Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName already exists."
-                if (Get-AzResource -ResourceGroupName $resourceGroupName) {
+                $resources = Invoke-MyAzureLabRetry -Activity 'Get-AzResource' -ScriptBlock {
+                    Get-AzResource -ResourceGroupName $resourceGroupName
+                }
+                if ($resources) {
                     Stop-PSFFunction -Message "Resource group $resourceGroupName is not empty. Stopping." -EnableException $EnableException
                     return
                 }
             } else {
                 Write-PSFMessage -Level Host -Message "Creating resource group $resourceGroupName"
-                $null = New-AzResourceGroup -Name $resourceGroupName -Location $location
+                $null = Invoke-MyAzureLabRetry -Activity "New-AzResourceGroup $resourceGroupName" -ScriptBlock {
+                    New-AzResourceGroup -Name $resourceGroupName -Location $location
+                }
             }
 
             Write-PSFMessage -Level Host -Message 'Getting HomeIP'
@@ -54,7 +59,7 @@ function Invoke-MyAzureLabPart1 {
             #####
 
             Write-PSFMessage -Level Host -Message 'Configuring virtual maschine STATUS'
-            Set-MyAzureLabSFTPItem -ComputerName STATUS -Credential $InitialCredential -Path $PSScriptRoot\..\MyLab\status.ps1 -Destination "/home/$($InitialCredential.UserName)" -Force -EnableException
+            Set-MyAzureLabSFTPItem -ComputerName STATUS -Credential $InitialCredential -Path $PSScriptRoot\status.ps1 -Destination "/home/$($InitialCredential.UserName)" -Force -EnableException
             $installStatusApi = @(
                 "sudo timedatectl set-timezone $($Config.STATUS.Timezone)"
                 "echo '@reboot sudo pwsh /home/$($InitialCredential.UserName)/status.ps1 &' > /tmp/crontab"

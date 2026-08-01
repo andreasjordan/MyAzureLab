@@ -97,10 +97,16 @@ try {
     Install-Module -Name Pester -Force -SkipPublisherCheck
     Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -MaximumVersion 1.18.2
 
-    $null = New-Item -Path C:\GitHub -ItemType Directory
+    if (-not (Test-Path -Path C:\GitHub)) {
+        $null = New-Item -Path C:\GitHub -ItemType Directory
+    }
     Push-Location -Path C:\GitHub
-    git clone --quiet https://github.com/dataplat/dbatools.git
-    git clone --quiet https://github.com/dataplat/appveyor-lab.git
+    if (-not (Test-Path -Path C:\GitHub\dbatools)) {
+        git clone --quiet https://github.com/dataplat/dbatools.git
+    }
+    if (-not (Test-Path -Path C:\GitHub\appveyor-lab)) {
+        git clone --quiet https://github.com/dataplat/appveyor-lab.git
+    }
     Pop-Location
     
     Send-Status -Message 'Finished to configure system for dbatools tests'
