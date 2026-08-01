@@ -169,8 +169,16 @@ if (Get-Command -Name choco -ErrorAction SilentlyContinue) {
         if ($installedPackages -notcontains $package) {
             try {
                 Send-Status -Message "Starting to install chocolatey package $package"
-        
-                $installResult = choco install $package --confirm --limitoutput --no-progress
+
+                # --execution-timeout keeps a hanging package from blocking the whole deployment.
+                # On 2026-08-01 the powershell-core package spun forever in its own install
+                # script: it walks the parent process chain with wmi, and after a reboot pid
+                # reuse had made that chain circular (wininit -> svchost -> services -> wininit),
+                # so it never reached a root. Without a timeout the deployment simply stopped,
+                # and the machine sent no message at all.
+                # 1800 seconds is deliberately generous: sql-server-management-studio needs
+                # about 11 minutes on a Standard_B2s_v2. Chocolatey's own default would be 2700.
+                $installResult = choco install $package --confirm --limitoutput --no-progress --execution-timeout=1800
                 if ($installResult -match 'Warnings:') {
                     Send-Status -Message 'Chocolatey generated warnings'
                 }
