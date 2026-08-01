@@ -54,7 +54,11 @@ function Wait-MyAzureLabDeploymentCompletion {
                 if ($failed.Count -gt 0) {
                     break
                 }
-                if ($waitingFor.Count -eq 0 -and ($reported.Message | Select-Object -Unique) -eq $WaitFor) {
+                # Count the ones that are not done yet. Do not compare the list of messages
+                # against $WaitFor: with an array on the left "-eq" filters instead of comparing
+                # and would already be true as soon as a single machine is finished.
+                $notFinished = @($reported | Where-Object Message -ne $WaitFor)
+                if ($waitingFor.Count -eq 0 -and $notFinished.Count -eq 0) {
                     $finished = $true
                     break
                 }
