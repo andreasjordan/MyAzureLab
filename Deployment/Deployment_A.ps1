@@ -302,7 +302,7 @@ if ($env:COMPUTERNAME -eq 'DC') {
     
             $adminPassword = ConvertTo-SecureString -String $config.Domain.AdminPassword -AsPlainText -Force
             New-ADUser -Name $config.Domain.AdminName -AccountPassword $adminPassword -Enabled $true
-            Add-ADGroupMember -Identity 'Domain Admins' -Members Admin
+            Add-ADGroupMember -Identity 'Domain Admins' -Members $config.Domain.AdminName
 
             Send-Status -Message "Finished to create domain admin $($config.Domain.AdminName)"
         } catch {

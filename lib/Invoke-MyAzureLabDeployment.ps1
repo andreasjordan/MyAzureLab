@@ -53,6 +53,9 @@ function Invoke-MyAzureLabDeployment {
                 }
             } elseif ($ScriptBlock) {
                 $commandParams.ScriptBlock = $ScriptBlock
+                if ($Config) {
+                    $commandParams.ArgumentList = $Config
+                }
             }
 
             Write-PSFMessage -Level Verbose -Message "Starting Invoke-Command"

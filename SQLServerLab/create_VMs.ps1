@@ -76,7 +76,7 @@ foreach ($computerName in $vmConfig.Keys) {
         Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
         $script = Get-Content -Path $vmConfig.$computerName.ScriptBlock_C -Raw
         $scriptblock = [scriptblock]::Create($script)
-        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -ScriptBlock $scriptblock -EnableException
+        Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -ScriptBlock $scriptblock -Config $vmConfig.$computerName -EnableException
     }
 }
 Write-PSFMessage -Level Host -Message "Waiting 2 minutes"
