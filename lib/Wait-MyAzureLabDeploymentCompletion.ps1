@@ -16,13 +16,25 @@ function Wait-MyAzureLabDeploymentCompletion {
         [Parameter(Mandatory)]
         [string[]]$ComputerName,
         [PSCustomObject[]]$StatusBefore,
-        [string]$StatusURL = $statusConfig.Uri,
+        [string]$StatusURL,
         [string]$WaitFor = 'Finished deployment',
         [int]$Timeout = 7200,
         [switch]$EnableException
     )
 
     process {
+        # See Get-MyAzureLabStatus: $statusConfig.Uri is only filled while create_VMs.ps1 runs
+        if (-not $StatusURL) {
+            $StatusURL = $statusConfig.Uri
+        }
+        if (-not $StatusURL) {
+            $StatusURL = $Env:MyStatusURL
+        }
+        if (-not $StatusURL) {
+            Stop-PSFFunction -Message 'No url for the status api. Set $Env:MyStatusURL, or pass -StatusURL, or run this while create_VMs.ps1 has set $statusConfig.Uri.' -EnableException $EnableException
+            return
+        }
+
         try {
             $timeBefore = @{ }
             foreach ($entry in $StatusBefore) {
