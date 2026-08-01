@@ -1,4 +1,19 @@
 function Clear-MyAzureLabResourceGroup {
+    <#
+        Empties the resource group without removing the resource group itself: all virtual
+        maschines, then the network security group, the virtual network and the key vault.
+
+        This is meant for a resource group that was handed to me in someone else's
+        subscription. I am not allowed to delete such a resource group, and I could not
+        recreate it either, so this command clears out everything inside it and leaves an empty
+        resource group behind to start over with.
+
+        In my own subscription there is no need for it:
+        * Remove-MyAzureLabVM -All removes only the virtual maschines, which is what I use to
+          save money while keeping the network and the key vault.
+        * Remove-MyAzureLabResourceGroup removes the resource group as a whole, which is fine
+          there because I can simply create it again.
+    #>
     [CmdletBinding()]
     Param (
         [switch]$EnableException
