@@ -270,7 +270,12 @@ function New-MyAzureLabVM {
                     $ProgressPreference = 'SilentlyContinue'
                     [System.Threading.Thread]::CurrentThread.CurrentUICulture = 'en-US'
                     $null = Install-PackageProvider -Name NuGet -Force
-                    Install-Module -Name AutomatedLab -AllowClobber -SkipPublisherCheck -Force
+                    $url = "https://github.com/AutomatedLab/AutomatedLab/releases/download/5.61.0/AutomatedLab.msi"
+                    $msi = "C:\Temp\AutomatedLab.msi"
+                    $log = "C:\Temp\AutomatedLab.log"
+                    Invoke-WebRequest -Uri $url -OutFile $msi -UseBasicParsing
+                    Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /L*v `"$log`"" -Wait -NoNewWindow
+                    Start-Sleep -Seconds 30
                     New-LabSourcesFolder *> $null
                     Enable-LabHostRemoting -Force *> $null
                     $null = reg add "HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client" /v "AuthenticationLevelOverride" /t "REG_DWORD" /d 0 /f
