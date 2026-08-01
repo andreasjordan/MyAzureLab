@@ -29,7 +29,7 @@ trap {
 }
 
 Send-Status -Message 'Creating virtual maschine BASE'
-New-MyAzureLabVM -ComputerName BASE -SourceImage WindowsServer2022 -VMSize Standard_E4s_v6 -Credential $initCredential -TrustedLaunch -AutomatedLab -EnableException
+New-MyAzureLabVM -ComputerName BASE -SourceImage WindowsServer2022 -VMSize Standard_E4s_v6 -DiskSizeInGB 256 -Credential $initCredential -TrustedLaunch -AutomatedLab -EnableException -Verbose
 
 Send-Status -Message 'Configuring virtual maschine BASE'
 Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -ArgumentList $labConfig -ScriptBlock {
@@ -46,8 +46,22 @@ Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -Argumen
     foreach ($envVar in $config.EnvironmentVariables.GetEnumerator()) {
         [Environment]::SetEnvironmentVariable($envVar.Key, $envVar.Value, 'Machine')
     }
+
+    Resize-Partition -DriveLetter C -Size (Get-PartitionSupportedSize -DriveLetter C).SizeMax
+
+    Disable-ScheduledTask -TaskPath "\Microsoft\Windows\Server Manager\" -TaskName "ServerManager"
+
+    $null = New-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Network\NewNetworkWindowOff" -Force
+
+    $null = New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Reliability" -Force
+    $null = New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Reliability" -Name "ShutdownReasonOn" -Value 0 -PropertyType DWord -Force
+
+#    Set-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced "-Name "HideFileExt" -Value 0
+#    Set-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "NavPaneExpandToCurrentFolder" -Value 1
+#    Set-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "NavPaneShowAllFolders" -Value 1
 }
 
+<#
 Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -ArgumentList $labConfig -ScriptBlock {
     param($config)
     $scheduledTaskActionParams = @{
@@ -63,5 +77,6 @@ Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -Argumen
     $null = Register-ScheduledTask @scheduledTaskParams
 }
 Restart-MyAzureLabVM -ComputerName BASE
+#>
 
 Send-Status -Message 'Finished creating virtual maschine BASE'

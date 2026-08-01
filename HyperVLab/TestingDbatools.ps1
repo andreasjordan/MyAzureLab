@@ -1,7 +1,5 @@
 $ErrorActionPreference = 'Continue'
 
-Start-Transcript -Path "$PSScriptRoot\transcript-$([datetime]::Now.ToString('yyyy-MM-dd-HH-mm-ss')).txt"
-
 Import-Module -Name AutomatedLab
 
 $LabName          = 'TestingDbatools'
@@ -11,6 +9,16 @@ $LabAdminUser     = 'Admin'
 $LabAdminPassword = 'P@ssw0rd'
 
 $LabDomainName    = 'ordix.local'
+
+
+try {
+    Import-Lab -Name $LabName -NoValidation
+    Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All -Wait
+    mstsc /v:$LabNetworkBase.20
+    break
+} catch {
+    Write-Host "Lab is not installed, will install now..."
+}
 
 
 <# Some commands that I use for importing, removing, stopping, starting or connecting to the lab:
@@ -27,11 +35,25 @@ $user = $LabAdminUser + '@' + $LabDomainName
 $pass = $LabAdminPassword
 $null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
 
-# cmdkey /add:TERMSRV/192.168.3.20 /user:Admin@ordix.local /pass:P@ssw0rd
-# mstsc /v:192.168.3.20
+cmdkey /add:TERMSRV/192.168.3.20 /user:Admin@ordix.local /pass:P@ssw0rd
+mstsc /v:192.168.3.20
+
+Enter-LabPSSession -ComputerName ADMIN01
+
+
+
+
+Import-Lab -Name $LabName -NoValidation
+Stop-LabVM -ComputerName DC, SQL01, SQL02, SQL03, SQL04, SQL05 -Wait
+Start-Sleep -Seconds 10
+Get-VMSnapshot -VMName $LabName-DC, $LabName-SQL01, $LabName-SQL02, $LabName-SQL03, $LabName-SQL04, $LabName-SQL05 -Name Level0 | Restore-VMSnapshot -Confirm:$false
+Start-LabVM -ComputerName DC -Wait
+Start-Sleep -Seconds 60
+Start-LabVM -ComputerName SQL01, SQL02, SQL03, SQL04, SQL05 -Wait
+
+
 
 #>
-
 
 function Send-Status {
     Param([string]$Message)
@@ -73,7 +95,10 @@ $MachineDefinition = @(
         Name            = 'DC'
         IpAddress       = "$LabNetworkBase.10"
         DnsServer1      = $LabDnsServer
-        Roles           = 'RootDC'
+        Roles           = @(
+            'RootDC'
+            'CaRoot'
+        )
     }
     @{
         Name            = 'ADMIN01'
@@ -91,6 +116,14 @@ $MachineDefinition = @(
     @{
         Name            = 'SQL03'
         IpAddress       = "$LabNetworkBase.33"
+    }
+    @{
+        Name            = 'SQL04'
+        IpAddress       = "$LabNetworkBase.34"
+    }
+    @{
+        Name            = 'SQL05'
+        IpAddress       = "$LabNetworkBase.35"
     }
 )
 
@@ -216,101 +249,149 @@ foreach ($md in $MachineDefinition) {
 }
 Install-Lab -NoValidation
 
+
+Send-Status -Message 'Creating NetNat'
 $null = New-NetNat -Name $LabName -InternalIPInterfaceAddressPrefix "$LabNetworkBase.0/24"
 
-Invoke-LabCommand -ComputerName (Get-LabVM) -ActivityName 'Disable Windows updates' -ScriptBlock { 
+
+Send-Status -Message 'Disabling Windows Updates'
+Invoke-LabCommand -ComputerName (Get-LabVM) -ActivityName 'Disabling Windows Updates' -ScriptBlock { 
     # https://learn.microsoft.com/en-us/windows/deployment/update/waas-wu-settings
-    Set-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU -Name NoAutoUpdate -Value 1
+    try {
+        Set-ItemProperty -Path HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU -Name NoAutoUpdate -Value 1
+        $true
+    } catch {
+        Write-Warning -Message "Failed to disable Windows Updates: $_"
+        $false
+    }
 }
 
 
+Send-Status -Message 'Disabling Firewall'
+Invoke-LabCommand -ComputerName (Get-LabVM) -ActivityName 'Disabling Firewall' -ScriptBlock { 
+    try {
+        Set-NetFirewallProfile -Profile Domain, Public, Private -Enabled False
+        $true
+    } catch {
+        Write-Warning -Message "Failed to disable Firewall: $_"
+        $false
+    }
+}
 
 
-# Configure the AD
-Send-Status -Message "Configure the AD"
-Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareDomain' -ArgumentList $LabAdminPassword -ScriptBlock {
+Send-Status -Message 'Prepare Domain'
+Invoke-LabCommand -ComputerName DC -ActivityName 'Prepare Domain' -ArgumentList $LabAdminPassword -ScriptBlock {
     param ($Password)
 
-    Start-Transcript -Path C:\DeployDebug\PrepareDomain.log
+    try {
+        if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory}
+        Start-Transcript -Path C:\Temp\PrepareDomain.log
 
-    Import-Module -Name KDS
-    Import-Module -Name ActiveDirectory
-    Import-Module -Name GroupPolicy
+        Import-Module -Name KDS
+        Import-Module -Name ActiveDirectory
+        Import-Module -Name GroupPolicy
 
-    $adminComputerOU = New-ADOrganizationalUnit -Name AdminComputer -ProtectedFromAccidentalDeletion:$false -PassThru
-    $adminUserOU = New-ADOrganizationalUnit -Name AdminUser -ProtectedFromAccidentalDeletion:$false -PassThru
-    $sqlComputerOU = New-ADOrganizationalUnit -Name SqlComputer -ProtectedFromAccidentalDeletion:$false -PassThru
-    $sqlUserOU = New-ADOrganizationalUnit -Name SqlUser -ProtectedFromAccidentalDeletion:$false -PassThru
+        $adminComputerOU = New-ADOrganizationalUnit -Name AdminComputer -ProtectedFromAccidentalDeletion:$false -PassThru
+        $adminUserOU = New-ADOrganizationalUnit -Name AdminUser -ProtectedFromAccidentalDeletion:$false -PassThru
+        $sqlComputerOU = New-ADOrganizationalUnit -Name SqlComputer -ProtectedFromAccidentalDeletion:$false -PassThru
+        $sqlUserOU = New-ADOrganizationalUnit -Name SqlUser -ProtectedFromAccidentalDeletion:$false -PassThru
 
-    Get-ADComputer -Filter 'Name -like "ADMIN*"' | Move-ADObject -TargetPath $adminComputerOU.DistinguishedName
-    Get-ADComputer -Filter 'Name -like "SQL*"' | Move-ADObject -TargetPath $sqlComputerOU.DistinguishedName
+        Get-ADComputer -Filter 'Name -like "ADMIN*"' | Move-ADObject -TargetPath $adminComputerOU.DistinguishedName
+        Get-ADComputer -Filter 'Name -like "SQL*"' | Move-ADObject -TargetPath $sqlComputerOU.DistinguishedName
 
-    $accountPassword = (ConvertTo-SecureString -String $Password -AsPlainText -Force)
-    New-ADUser -Name SQLAdmin -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
-    New-ADUser -Name SQLUser1 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
-    New-ADUser -Name SQLUser2 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
-    New-ADUser -Name SQLUser3 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
-    New-ADUser -Name SQLUser4 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
-    New-ADUser -Name SQLUser5 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
+        $accountPassword = (ConvertTo-SecureString -String $Password -AsPlainText -Force)
+        New-ADUser -Name SQLAdmin -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
+        New-ADUser -Name SQLUser1 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
+        New-ADUser -Name SQLUser2 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
+        New-ADUser -Name SQLUser3 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
+        New-ADUser -Name SQLUser4 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
+        New-ADUser -Name SQLUser5 -AccountPassword $accountPassword -Enabled $true -Path $sqlUserOU.DistinguishedName
 
-    New-ADGroup -Name SQLAdmins -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
-    New-ADGroup -Name SQLUsers -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
+        New-ADGroup -Name SQLAdmins -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
+        New-ADGroup -Name SQLUsers -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
 
-    Add-ADGroupMember -Identity SQLAdmins -Members SQLAdmin
-    Add-ADGroupMember -Identity SQLUsers -Members SQLUser1, SQLUser2, SQLUser3, SQLUser4, SQLUser5
+        Add-ADGroupMember -Identity SQLAdmins -Members SQLAdmin
+        Add-ADGroupMember -Identity SQLUsers -Members SQLUser1, SQLUser2, SQLUser3, SQLUser4, SQLUser5
 
+        # Setup of gMSA for SQL Server
 
-    # Begin setup of gMSA for SQL Server
+        if (-not (Get-KdsRootKey)) {
+            $null = Add-KdsRootKey -EffectiveTime ([datetime]::Now).AddHours(-10)
+        }
 
-    if (-not (Get-KdsRootKey)) {
-        $null = Add-KdsRootKey -EffectiveTime ([datetime]::Now).AddHours(-10)
+        $serviceAccountName        = 'gMSA-SQLServer'
+        $serviceAccountDescription = 'Group-managed service account for SQL Server'
+
+        $computerName              = (Get-ADComputer -Filter 'Name -like "SQL*"').Name
+        $computerAccountName       = $computerName | ForEach-Object { $_ + '$' }
+        $serviceAccountDNSHostName = "$serviceAccountName.$((Get-ADDomain).DNSRoot)"
+
+        $adServiceAccountParams = @{
+            Path                                       = $sqlUserOU.DistinguishedName
+            Name                                       = $serviceAccountName
+            Description                                = $serviceAccountDescription
+            DNSHostName                                = $serviceAccountDNSHostName
+            PrincipalsAllowedToRetrieveManagedPassword = $computerAccountName
+            Enabled                                    = $true
+        }
+
+        $serviceAcccount = New-ADServiceAccount @adServiceAccountParams -PassThru
+        $null = dsacls $serviceAcccount.DistinguishedName /G "SELF:RPWP;servicePrincipalName"
+
+        New-ADGroup -Name SQLServiceAccounts -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
+        Add-ADGroupMember -Identity SQLServiceAccounts -Members (Get-ADServiceAccount -Identity $serviceAccountName)
+
+        Stop-Transcript
+        $true
+    } catch {
+        Write-Warning -Message "Failed to prepare domain: $_"
+        $false
     }
-
-    $serviceAccountName        = 'gMSA-SQLServer'
-    $serviceAccountDescription = 'Group-managed service account for SQL Server'
-
-    $computerName              = (Get-ADComputer -Filter 'Name -like "SQL*"').Name
-    $computerAccountName       = $computerName | ForEach-Object { $_ + '$' }
-    $serviceAccountDNSHostName = "$serviceAccountName.$((Get-ADDomain).DNSRoot)"
-    $serviceAccountUsername    = "$((Get-ADDomain).NetBIOSName.ToUpper())\$serviceAccountName" + '$'
-
-    $adServiceAccountParams = @{
-        Path                                       = $sqlUserOU.DistinguishedName
-        Name                                       = $serviceAccountName
-        Description                                = $serviceAccountDescription
-        DNSHostName                                = $serviceAccountDNSHostName
-        PrincipalsAllowedToRetrieveManagedPassword = $computerAccountName
-        Enabled                                    = $true
-    }
-
-    $serviceAcccount = New-ADServiceAccount @adServiceAccountParams -PassThru
-    $null = dsacls $serviceAcccount.DistinguishedName /G "SELF:RPWP;servicePrincipalName"
-
-    New-ADGroup -Name SQLServiceAccounts -GroupCategory Security -GroupScope Global -Path $sqlUserOU.DistinguishedName
-    Add-ADGroupMember -Identity SQLServiceAccounts -Members (Get-ADServiceAccount -Identity $serviceAccountName)
-
-    Restart-Computer -ComputerName $computerName -Force
-
-    # End setup of gMSA for SQL Server
-
-    Stop-Transcript
 }
 
 
-Send-Status -Message "PrepareFileserver"
+Send-Status -Message 'Prepare Fileserver'
 foreach ($folder in $FileServerFolder) {
     # $folder = $fileServerConfig.Folder[0]
 
-    Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareFileserver' -ArgumentList "C:\$($folder.Path)" -ScriptBlock { param($Path) $null = New-Item -Path $Path -ItemType Directory }
+    Invoke-LabCommand -ComputerName DC -ActivityName 'Prepare Fileserver' -ArgumentList "C:\$($folder.Path)" -ScriptBlock { 
+        param($Path) 
+        try {
+            $null = New-Item -Path $Path -ItemType Directory
+            $true
+        } catch {
+            Write-Warning -Message "Failed to create directory: $_"
+            $false
+        }
+    }
 
     if ($folder.ExpandISO) {
         $isoImage = Mount-LabIsoImage -ComputerName DC -IsoPath $folder.ExpandISO -PassThru
-        Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareFileserver' -ArgumentList "C:\$($folder.Path)", $isoImage.DriveLetter -ScriptBlock { param($Path, $DriveLetter) $null = New-Item -Path $Path -ItemType Directory -Force ; Copy-Item -Path "$DriveLetter\*" -Destination $Path -Recurse }
+        Invoke-LabCommand -ComputerName DC -ActivityName 'Prepare Fileserver' -ArgumentList "C:\$($folder.Path)", $isoImage.DriveLetter -ScriptBlock { 
+            param($Path, $DriveLetter) 
+            try {
+                $null = New-Item -Path $Path -ItemType Directory -Force
+                Copy-Item -Path "$DriveLetter\*" -Destination $Path -Recurse 
+                $true
+            } catch {
+                Write-Warning -Message "Failed to expand ISO: $_"
+                $false
+            }
+        }
         Dismount-LabIsoImage -ComputerName DC 
     }
 
     foreach ($file in $folder.DownloadFile) {
-        Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareFileserver' -ArgumentList $file.Url, "C:\$($folder.Path)\$($file.Name)" -ScriptBlock { param($Uri, $OutFile) Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing }
+        Invoke-LabCommand -ComputerName DC -ActivityName 'Prepare Fileserver' -ArgumentList $file.Url, "C:\$($folder.Path)\$($file.Name)" -ScriptBlock { 
+            param($Uri, $OutFile)
+            try {
+                Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing 
+                $true
+            } catch {
+                Write-Warning -Message "Failed to download file: $_"
+                $false
+            }
+        }
     }
 
     foreach ($file in $folder.CopyFile) {
@@ -322,72 +403,76 @@ foreach ($folder in $FileServerFolder) {
     }
 
     if ($folder.Access) {
-        Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareFileserver' -ArgumentList $folder.Path, $folder.Access -ScriptBlock { 
+        Invoke-LabCommand -ComputerName DC -ActivityName 'Prepare Fileserver' -ArgumentList $folder.Path, $folder.Access -ScriptBlock { 
             param($Path, $Access)
-            foreach ($acc in $Access) {
-                $accessRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
-                    "$domainName\$($acc.AccountName)",
-                    $acc.AccessRight,
-                    [System.Security.AccessControl.InheritanceFlags]::ContainerInherit + [System.Security.AccessControl.InheritanceFlags]::ObjectInherit,
-                    [System.Security.AccessControl.PropagationFlags]::None,
-                    'Allow'
-                )
-                $acl = Get-Acl -Path "C:\$Path"
-                $acl.SetAccessRule($accessRule)
-                Set-Acl -Path "C:\$Path" -AclObject $acl
+            try {
+                foreach ($acc in $Access) {
+                    $accessRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+                        "$domainName\$($acc.AccountName)",
+                        $acc.AccessRight,
+                        [System.Security.AccessControl.InheritanceFlags]::ContainerInherit + [System.Security.AccessControl.InheritanceFlags]::ObjectInherit,
+                        [System.Security.AccessControl.PropagationFlags]::None,
+                        'Allow'
+                    )
+                    $acl = Get-Acl -Path "C:\$Path"
+                    $acl.SetAccessRule($accessRule)
+                    Set-Acl -Path "C:\$Path" -AclObject $acl
+                }
+                $true
+            } catch {
+                Write-Warning -Message "Failed to set access rights: $_"
+                $false
             }
         }
     }
 
     if ($folder.Share) {
-        Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareFileserver' -ArgumentList $folder.Path, $folder.Share -ScriptBlock { 
+        Invoke-LabCommand -ComputerName DC -ActivityName 'Prepare Fileserver' -ArgumentList $folder.Path, $folder.Share -ScriptBlock { 
             param($Path, $Share)
-            $domainName = (Get-ADDomain).NetBIOSName
-            $null = New-SmbShare -Path "C:\$Path" -Name $Share.Name
-            foreach ($access in $Share.Access) {
-                $null = Grant-SmbShareAccess -Name $Share.Name -AccountName "$domainName\$($access.AccountName)" -AccessRight $access.AccessRight -Force
-            }
-            if (-not $Share.Access) {
-                $null = Grant-SmbShareAccess -Name $Share.Name -AccountName 'Everyone' -AccessRight Full -Force
+            try {
+                $domainName = (Get-ADDomain).NetBIOSName
+                $null = New-SmbShare -Path "C:\$Path" -Name $Share.Name
+                foreach ($access in $Share.Access) {
+                    $null = Grant-SmbShareAccess -Name $Share.Name -AccountName "$domainName\$($access.AccountName)" -AccessRight $access.AccessRight -Force
+                }
+                if (-not $Share.Access) {
+                    $null = Grant-SmbShareAccess -Name $Share.Name -AccountName 'Everyone' -AccessRight Full -Force
+                }
+                $true
+            } catch {
+                Write-Warning -Message "Failed to create SMB share: $_"
+                $false
             }
         }
     }
 }
 
-Invoke-LabCommand -ComputerName DC -ActivityName 'PrepareFileserver' -ScriptBlock {
-    $dnsRoot = (Get-ADDomain).DNSRoot
-    Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $dnsRoot -HostNameAlias dc.$dnsRoot -Name fs
+Invoke-LabCommand -ComputerName DC -ActivityName 'Prepare Fileserver' -ScriptBlock {
+    try {
+        $dnsRoot = (Get-ADDomain).DNSRoot
+        Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $dnsRoot -HostNameAlias dc.$dnsRoot -Name fs
+        $true
+    } catch {
+        Write-Warning -Message "Failed to create DNS CNAME record: $_"
+        $false
+    }
 }
 
-Send-Status -Message "Install RSAT"
+
+Send-Status -Message 'Installing RSAT'
 Install-LabWindowsFeature -ComputerName ADMIN01 -FeatureName RSAT-Clustering, RSAT-AD-Tools -IncludeAllSubFeature
 Restart-LabVM -ComputerName ADMIN01 -Wait
 Start-Sleep -Seconds 30
 
 
-$pingSucceeded = Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Testing internet access' -PassThru -ScriptBlock { 
-    (Test-NetConnection -ComputerName www.google.de -WarningAction SilentlyContinue).PingSucceeded
-}
-
-if (-not $pingSucceeded) {
-    Write-Warning -Message "We don't have internet access, but let's wait for 30 seconds and try again"
-    Start-Sleep -Seconds 30
-    $pingSucceeded = Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Testing internet access' -PassThru -ScriptBlock { 
-        (Test-NetConnection -ComputerName www.google.de -WarningAction SilentlyContinue).PingSucceeded
-    }
-    if (-not $pingSucceeded) {
-        Write-Warning -Message "We don't have internet access, so stopping here"
-        break
-    }
-}
-
-Send-Status -Message "Installing chocolatey packages"
-Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing chocolatey packages' -ArgumentList @(, $ChocolateyPackages) -ScriptBlock { 
+Send-Status -Message 'Installing Chocolatey Packages'
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing Chocolatey Packages' -ArgumentList @(, $ChocolateyPackages) -ScriptBlock { 
     param($ChocolateyPackages)
 
     $ErrorActionPreference = 'Stop'
 
-    $logPath = 'C:\DeployDebug\InstallChocolateyPackages.log'
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory}
+    $logPath = 'C:\Temp\InstallChocolateyPackages.log'
 
     try {
         Invoke-Expression -Command ([System.Net.WebClient]::new().DownloadString('https://chocolatey.org/install.ps1')) *>$logPath
@@ -404,18 +489,22 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing chocolatey pac
         } else {
             Write-Warning -Message "InstallResult: $installResult"
         }
+        $true
     } catch {
         $message = "Setting up Chocolatey failed: $_"
         $message | Add-Content -Path $logPath
         Write-Warning -Message $message
+        $false
     }
 }
 
-Send-Status -Message "Installing PowerShell modules"
+
+Send-Status -Message 'Installing PowerShell modules'
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing PowerShell modules' -ArgumentList @(, $PowerShellModules) -ScriptBlock { 
     param($PowerShellModules)
 
-    $logPath = 'C:\DeployDebug\InstallPowerShellModules.log'
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory}
+    $logPath = 'C:\Temp\InstallPowerShellModules.log'
 
     $ErrorActionPreference = 'Stop'
 
@@ -442,39 +531,47 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing PowerShell mod
             }
         }
 
-        Install-Module -Name Pester -Force -SkipPublisherCheck
-        Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck -MaximumVersion 1.18.2
+        Install-Module -Name Pester -RequiredVersion 6.0.0 -Force -SkipPublisherCheck
+        Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.18.2 -Force -SkipPublisherCheck
 
         # Configure dbatools to suppress the message during import and to accept self-signed certificates:
         Import-Module -Name dbatools *> $null
         Set-DbatoolsConfig -FullName Import.EncryptionMessageCheck -Value $false -Register
         Set-DbatoolsConfig -FullName sql.connection.trustcert -Value $true -Register
+        $true
     } catch {
         $message = "Setting up PowerShell failed: $_"
         $message | Add-Content -Path $logPath
         Write-Warning -Message $message
+        $false
     }
 }
 
-Send-Status -Message "Downloading SQL Server CUs"
+
+Send-Status -Message 'Downloading SQL Server CUs'
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading SQL Server CUs' -ScriptBlock { 
-    $logPath = 'C:\DeployDebug\DownloadCUs.log'
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory}
+    $logPath = 'C:\Temp\DownloadCUs.log'
 
     $ErrorActionPreference = 'Stop'
 
     try {
         Set-Location -Path \\fs\Software\SQLServer\CU
         .\Get-CU.ps1
+        $true
     } catch {
         $message = "Downloading SQL Server CUs failed: $_"
         $message | Add-Content -Path $logPath
         Write-Warning -Message $message
+        $false
     }
 }
 
-Send-Status -Message "Setting up CredSSP"
+
+Send-Status -Message 'Setting up CredSSP'
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting up CredSSP' -ScriptBlock { 
-    $logPath = 'C:\DeployDebug\SetupCredSSP.log'
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory }
+    $logPath = 'C:\Temp\SetupCredSSP.log'
 
     $ErrorActionPreference = 'Stop'
 
@@ -483,18 +580,23 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting up CredSSP' -Scri
             ForEach-Object -Process { 
                 $null = Enable-WSManCredSSP -Role Client -DelegateComputer $_.Name -Force
                 $null = Enable-WSManCredSSP -Role Client -DelegateComputer $_.DNSHostName -Force
+                Invoke-Command -ComputerName $_.Name -ScriptBlock { $null = Enable-WSManCredSSP -Role Server -Force }
             }
+        $true
     } catch {
         $message = "Setting up CredSSP failed: $_"
         $message | Add-Content -Path $logPath
         Write-Warning -Message $message
+        $false
     }
 }
 
-Send-Status -Message "Downloading repositories"
+
+Send-Status -Message 'Downloading repositories'
 Get-PSSession | Remove-PSSession
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories' -ScriptBlock { 
-    $logPath = 'C:\DeployDebug\DownloadDemos.log'
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory }
+    $logPath = 'C:\Temp\DownloadDemos.log'
 
     $ErrorActionPreference = 'Stop'
 
@@ -507,41 +609,101 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
         git clone --quiet https://github.com/andreasjordan/testing-dbatools.git
         git clone --quiet https://github.com/andreasjordan/demos.git
         Copy-Item -Path C:\GitHub\appveyor-lab\* -Destination \\fs\appveyor-lab -Recurse
+        $true
     } catch {
         $message = "Downloading demo repository failed: $_"
         $message | Add-Content -Path $logPath
         Write-Warning -Message $message
+        $false
     }
 }
 
-Send-Status -Message "Enabling german keyboard"
+
+Send-Status -Message 'Enabling german keyboard'
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Enabling german keyboard' -ScriptBlock { 
-    Set-WinUserLanguageList -LanguageList de-DE, en-US -Force -WarningAction SilentlyContinue
+    try {
+        Set-WinUserLanguageList -LanguageList @('de-DE','en-US') -Force -WarningAction SilentlyContinue
+        $true
+    } catch {
+        Write-Warning -Message "Failed to set language list: $_"
+        $false
+    }
 }
+# The default language is still not the first one in the list. To change the keyboard layout use "LeftAlt+Shift". 
 
-Send-Status -Message "Disabling firewall"
-Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03 -ActivityName 'Disabling firewall' -ScriptBlock { 
-    Set-NetFirewallProfile -Profile Domain, Public, Private -Enabled False
+
+Send-Status -Message 'Disabling hardware acceleration'
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Disabling hardware acceleration' -ScriptBlock { 
+    try {
+        reg add "HKLM\SOFTWARE\Microsoft\Terminal Server Client" /v DisableHardwareAcceleration /t REG_DWORD /d 1 /f
+        $true
+    } catch {
+        Write-Warning -Message "Failed to disable hardware acceleration: $_"
+        $false
+    }
+    
 }
-
-Get-PSSession | Remove-PSSession
-
-Send-Status -Message "Installing instances"
-Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing instances' -ScriptBlock { 
-    C:\GitHub\testing-dbatools\install_remote_instances.ps1
-}
-
 
 
 if ($env:MyStatusURL) {
+    Send-Status -Message 'Setting environment variable MyStatusURL'
     Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment variable MyStatusURL' -ArgumentList $env:MyStatusURL -ScriptBlock { 
-         [Environment]::SetEnvironmentVariable('MyStatusURL', $args[0], 'Machine')
+        try {
+            [Environment]::SetEnvironmentVariable('MyStatusURL', $args[0], 'Machine')
+            $true
+        } catch {
+            Write-Warning -Message "Failed to set environment variable MyStatusURL: $_"
+            $false
+        }
     }
 }
 
+
+Send-Status -Message 'Setting environment variable MyConfigFilename'
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment variable MyConfigFilename' -ArgumentList 'TestConfig_remote_instances.ps1' -ScriptBlock { 
      [Environment]::SetEnvironmentVariable('MyConfigFilename', $args[0], 'Machine')
+     $true
 }
+
+
+Get-PSSession | Remove-PSSession
+
+<#
+Send-Status -Message "Creating Snapshot"
+Stop-LabVM -All
+Start-Sleep -Seconds 10
+Checkpoint-VM -Name $LabName-* -SnapshotName Level0
+Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All
+Start-Sleep -Seconds 30
+
+#>
+
+cmdkey /add:TERMSRV/192.168.3.20 /user:Admin@ordix.local /pass:P@ssw0rd
+mstsc /v:192.168.3.20
+
+
+break
+
+Send-Status -Message 'Installing instances'
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing instances' -ScriptBlock { 
+    try {
+        C:\GitHub\testing-dbatools\01_install_windows_cluster01.ps1
+        C:\GitHub\testing-dbatools\02_install_windows_cluster02.ps1
+        C:\GitHub\testing-dbatools\03_install_alwayson_fci.ps1
+        C:\GitHub\testing-dbatools\04_install_alwayson_fci2.ps1
+        C:\GitHub\testing-dbatools\05_install_remote_instances.ps1
+        C:\GitHub\testing-dbatools\06_configuring_instances.ps1
+        $true
+    } catch {
+        Write-Warning -Message "Failed to install instances: $_"
+        $false
+    }
+}
+
+
+
+
+Enter-LabPSSession -ComputerName ADMIN01
 
 Restart-LabVM -ComputerName ADMIN01 -Wait
 

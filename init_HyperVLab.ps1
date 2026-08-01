@@ -8,6 +8,8 @@
 . .\init_HyperVLab.ps1
 . .\init_HyperVLab.ps1 -Create BASE -Connect BASE
 . .\init_HyperVLab.ps1 -Start BASE -Connect BASE
+
+Stop-MyAzureLabResourceGroup
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -44,11 +46,16 @@ $labConfig = @{
         @{ Name = 'SQLServer2019' ; URL = $Env:MySQL2019URL ; FileName = 'en_sql_server_2019_developer_x64_dvd_e5ade34a.iso' }
     )
     EnvironmentVariables = @{
-        MyStatusURL = $env:MyStatusURL
+        MyStatusURL        = $env:MyStatusURL
+        MyLabName          = 'TestingDbatools'
+        MyLabNetworkBase   = '192.168.3'
+        MyLabAdminUser     = 'Admin'
+        MyLabAdminPassword = 'P@ssw0rd'
+        MyLabDomainName    = 'ordix.local'
     }
 }
 
-# Start VMs
+# Create VMs
 if ($CreateComputerName) {
     foreach ($computerName in $CreateComputerName) {
         . .\HyperVLab\create_$computerName.ps1
@@ -97,7 +104,58 @@ Start-MyAzureLabRDP -ComputerName BASE -Credential $initCredential
 $psSession = New-MyAzureLabSession -ComputerName BASE -Credential $initCredential
 $psSession | Remove-PSSession
 
+Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -ArgumentList $labConfig -ScriptBlock {
+    param($config)
+    foreach ($envVar in $config.EnvironmentVariables.GetEnumerator()) {
+        [Environment]::SetEnvironmentVariable($envVar.Key, $envVar.Value, 'Machine')
+    }
+}
 
+init.ps1:
+Import-Module -Name AutomatedLab
+Import-Lab -Name $env:MyLabName -NoValidation
+Start-LabVM -ComputerName DC -Wait
+Start-Sleep -Seconds 30
+Start-LabVM -All -Wait
+Start-Sleep -Seconds 60
+mstsc /v:$env:MyLabNetworkBase.20
+
+
+
+$RunKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$ValueName  = 'InitLabScript'
+$ScriptPath = 'C:\LabScripts\init.ps1'
+$PowerShell = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+$CommandLine = "`"$PowerShell`" -NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
+
+$current = Get-ItemProperty -Path $RunKeyPath -Name $ValueName -ErrorAction SilentlyContinue
+if ($null -eq $current) {
+    New-ItemProperty -Path $RunKeyPath -Name $ValueName -PropertyType String -Value $CommandLine -Force | Out-Null
+    Write-Host "Created HKCU Run entry '$ValueName' -> $CommandLine"
+} elseif ($current.$ValueName -ne $CommandLine) {
+    Set-ItemProperty -Path $RunKeyPath -Name $ValueName -Value $CommandLine -Force
+    Write-Host "Updated HKCU Run entry '$ValueName' -> $CommandLine"
+} else {
+    Write-Host "HKCU Run entry '$ValueName' already set. No changes made."
+}
+
+
+
+
+Invoke-Command -ComputerName DC -ScriptBlock {
+    $dnsRoot = (Get-ADDomain).DNSRoot
+    Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $dnsRoot -HostNameAlias fci01.$dnsRoot -Name app01
+    Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $dnsRoot -HostNameAlias sql03.$dnsRoot -Name app02
+}
+
+
+
+# Next steps for improving the lab:
+# * Start VMs when BASE starts
+# * RDP into ADMIN01 on login to BASE
+# * Include "reg add "HKLM\SOFTWARE\Microsoft\Terminal Server Client" /v DisableHardwareAcceleration /t REG_DWORD /d 1 /f" as it helps
+# * Chang default keyboard layout to DE in ADMIN01
 
 
 
@@ -136,6 +194,80 @@ Remove-MyAzureLabVM -All -Verbose
 
 Get-PSFConfigvalue -FullName PSFramework.Logging.FileSystem.LogPath 
 
+
+# Adding Azure SQL Database to the lab:
+######################################
+
+# ------------------------------
+# Inputs you set
+# ------------------------------
+$LogicalServerName   = "sqllab$(Get-Random)"   # must be globally unique
+$DatabaseName        = "sqllabdb"
+$ApplyFreeOffer      = $true                   # try to use free tier
+$AutoPauseMinutes    = 15                      # minimum supported, keeps cost down
+$MinVCore            = 0.5                     # serverless lower bound for GP
+$MaxVCore            = 1                       # tiny top end for tests
+
+# ------------------------------
+# Create (or reuse) logical server
+# ------------------------------
+$sqlServer = Get-AzSqlServer -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName -ErrorAction SilentlyContinue
+if (-not $sqlServer) {
+    $sqlServer = New-AzSqlServer -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName -Location $location -SqlAdministratorCredentials $initCredential
+}
+
+# ------------------------------
+# Lock down firewall to current public IP only
+# (change to your office IP if needed)
+# ------------------------------
+$fwRule = Get-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName -FirewallRuleName AllowHome -ErrorAction SilentlyContinue
+if ($fwRule) {
+    $null = Set-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName -FirewallRuleName AllowHome -StartIpAddress $homeIP -EndIpAddress $homeIP
+} else {
+    $null = New-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName -FirewallRuleName AllowHome -StartIpAddress $homeIP -EndIpAddress $homeIP
+}
+
+# ------------------------------
+# Create the database (serverless GP)
+# Try free offer first; fall back to paid serverless if not applicable.
+# ------------------------------
+$commonDbParams = @{
+    ResourceGroupName = $resourceGroupName
+    ServerName        = $LogicalServerName
+    DatabaseName      = $DatabaseName
+    Edition           = "GeneralPurpose"
+    ComputeModel      = "Serverless"           # vCore-based serverless
+    ComputeGeneration = "Gen5"
+    VCore             = [int][math]::Ceiling($MaxVCore)  # required by cmdlet; cap at max
+    AutoPauseDelayInMinutes = $AutoPauseMinutes
+    MinimumCapacity   = $MinVCore
+    MaxSizeBytes      = 32GB                   # stays within free limit / small storage
+    BackupStorageRedundancy = "Local"          # cheapest for a test lab
+}
+
+$db = Get-AzSqlDatabase -ResourceGroupName $ResourceGroupName -ServerName $LogicalServerName -DatabaseName $DatabaseName -ErrorAction SilentlyContinue
+if (-not $db) {
+    if ($ApplyFreeOffer) {
+        try {
+            $db = New-AzSqlDatabase @commonDbParams -UseFreeLimit -FreeLimitExhaustionBehavior "Pause" -ErrorAction Stop
+        } catch {
+            Write-Warning "Free offer not applied (maybe quota/region/subscription). Falling back to paid serverless."
+            $db = New-AzSqlDatabase @commonDbParams
+        }
+    } else {
+        $db = New-AzSqlDatabase @commonDbParams
+    }
+}
+
+# Output essentials
+$sqlServer | Select-Object ServerName, FullyQualifiedDomainName, Location
+$db     | Select-Object DatabaseName, Edition, Status, CurrentServiceObjectiveName
+
+
+
+Remove-AzSqlDatabase -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName -DatabaseName $DatabaseName
+Remove-AzSqlServerFirewallRule -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName -FirewallRuleName AllowHome
+Remove-AzSqlServer -ResourceGroupName $resourceGroupName -ServerName $LogicalServerName
 
 
 # The following commands are only used for initial setup or final destruction:
