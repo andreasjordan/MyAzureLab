@@ -10,6 +10,7 @@ function Invoke-MyAzureLabCommand {
     )
 
     process {
+        $session = $null
         try {
             Write-PSFMessage -Level Verbose -Message "Creating PSSession"
             $session = New-MyAzureLabSession -ComputerName $ComputerName -Credential $Credential -Timeout $Timeout -EnableException
@@ -17,10 +18,14 @@ function Invoke-MyAzureLabCommand {
             Invoke-Command -Session $session -ScriptBlock { $ErrorActionPreference = 'Stop' }
             Write-PSFMessage -Level Verbose -Message "Executing ScriptBlock"
             Invoke-Command -Session $session -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList -ErrorAction Stop
-            Write-PSFMessage -Level Verbose -Message "Removing PSSession"
-            $session | Remove-PSSession
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
+        } finally {
+            if ($session) {
+                Write-PSFMessage -Level Verbose -Message "Removing PSSession"
+                # The session can already be gone, for example if the scriptblock rebooted the computer
+                $session | Remove-PSSession -ErrorAction SilentlyContinue
+            }
         }
     }
 }

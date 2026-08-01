@@ -19,31 +19,35 @@ function Invoke-MyAzureLabSSHCommand {
     }
 
     $returnValue = $true
-    foreach ($cmd in $Command) {
-        if ($cmd -match '^nohup') {
-            Write-PSFMessage -Level Verbose -Message "Using stream for: $cmd"
-            $sshStream = New-SSHShellStream -SSHSession $sshSession
-            Invoke-SSHStreamShellCommand -ShellStream $sshStream -Command $cmd
-            Write-PSFMessage -Level Verbose -Message "Closing stream"
-            $sshStream.Close()
-        } else {
-            $sshCommandParams = @{
-                SSHSession               = $sshSession
-                Command                  = $cmd
-                EnsureConnection         = $true
-                TimeOut                  = $TimeOut
-                ShowStandardOutputStream = $ShowOutput
-                ShowErrorOutputStream    = $ShowOutput
-                ErrorAction              = 'Stop'
-            }
-            $sshResult = Invoke-SSHCommand @sshCommandParams
-            if ($sshResult.ExitStatus -ne $SuccessExitStatus) {
-                $returnValue = $false
-                break
+    try {
+        foreach ($cmd in $Command) {
+            if ($cmd -match '^nohup') {
+                Write-PSFMessage -Level Verbose -Message "Using stream for: $cmd"
+                $sshStream = New-SSHShellStream -SSHSession $sshSession
+                Invoke-SSHStreamShellCommand -ShellStream $sshStream -Command $cmd
+                Write-PSFMessage -Level Verbose -Message "Closing stream"
+                $sshStream.Close()
+            } else {
+                $sshCommandParams = @{
+                    SSHSession               = $sshSession
+                    Command                  = $cmd
+                    EnsureConnection         = $true
+                    TimeOut                  = $TimeOut
+                    ShowStandardOutputStream = $ShowOutput
+                    ShowErrorOutputStream    = $ShowOutput
+                    ErrorAction              = 'Stop'
+                }
+                $sshResult = Invoke-SSHCommand @sshCommandParams
+                if ($sshResult.ExitStatus -ne $SuccessExitStatus) {
+                    $returnValue = $false
+                    break
+                }
             }
         }
+    } finally {
+        # Also remove the session if one of the commands above threw
+        $null = $sshSession | Remove-SSHSession -ErrorAction SilentlyContinue
     }
-    $null = $sshSession | Remove-SSHSession
     if ($returnValue -eq $false) {
         Stop-PSFFunction -Message "Command '$cmd' returned with ExitStatus $($sshResult.ExitStatus)" -EnableException $EnableException
     }
