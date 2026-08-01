@@ -15,7 +15,9 @@ function Invoke-MyAzureLabRetry {
         [Parameter(Mandatory)]
         [scriptblock]$ScriptBlock,
         [string]$Activity = 'Azure call',
-        [int]$Retries = 3,
+        # On 2026-08-01 two New-AzVM calls only succeeded on the third attempt, so 3 was just
+        # barely enough. 5 gives some room without waiting too long on a real outage.
+        [int]$Retries = 5,
         [int]$WaitSeconds = 15,
         [switch]$RetryAnyError
     )
