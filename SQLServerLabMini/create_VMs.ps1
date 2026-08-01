@@ -34,14 +34,16 @@ Write-PSFMessage -Level Host -Message 'Part 2: Setting up the active directory d
 # Creating AD users on domain controller
 # Setting up file server on domain controller
 
-$partStartedAt = [datetime]::Now
+$statusBefore = Get-MyAzureLabStatus
+$dispatched = @( )
 foreach ($computerName in $vmConfig.Keys) {
     Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
     Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_A -Config $vmConfig.$computerName -EnableException
+    $dispatched += $computerName
 }
 Write-PSFMessage -Level Host -Message "Waiting 2 minutes"
 Start-Sleep -Seconds 120
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt -EnableException
+Wait-MyAzureLabDeploymentCompletion -ComputerName $dispatched -StatusBefore $statusBefore -EnableException
 
 
 ##########
@@ -50,27 +52,33 @@ Write-PSFMessage -Level Host -Message 'Part 3: Setting up SQL Server resources'
 
 # Filling file server with sql server sources
 
-$partStartedAt = [datetime]::Now
+$statusBefore = Get-MyAzureLabStatus
+$dispatched = @( )
 foreach ($computerName in $vmConfig.Keys) {
     if ($vmConfig.$computerName.Script_B) {
         Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
         Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_B -Config $vmConfig.$computerName -EnableException
+        $dispatched += $computerName
     }
 }
 Write-PSFMessage -Level Host -Message "Waiting 2 minutes"
 Start-Sleep -Seconds 120
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt -EnableException
+Wait-MyAzureLabDeploymentCompletion -ComputerName $dispatched -StatusBefore $statusBefore -EnableException
 
 
 ##########
 Write-PSFMessage -Level Host -Message 'Part 4: Setting up SQL Server instances'
 ##########
 
-$partStartedAt = [datetime]::Now
+$statusBefore = Get-MyAzureLabStatus
+$dispatched = @( )
 foreach ($computerName in $vmConfig.Keys) {
     if ($vmConfig.$computerName.Script_C) {
         Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
         Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_C -Config $vmConfig.$computerName -EnableException
+        # Only Script_C runs as a scheduled task and reports to the status api,
+        # ScriptBlock_C runs right here and returns when it is done
+        $dispatched += $computerName
     }
     if ($vmConfig.$computerName.ScriptBlock_C) {
         Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
@@ -81,7 +89,7 @@ foreach ($computerName in $vmConfig.Keys) {
 }
 Write-PSFMessage -Level Host -Message "Waiting 2 minutes"
 Start-Sleep -Seconds 120
-Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt -EnableException
+Wait-MyAzureLabDeploymentCompletion -ComputerName $dispatched -StatusBefore $statusBefore -EnableException
 
 if (-not $Env:MyStatusURL) {
     Write-PSFMessage -Level Host -Message "Removing virtual maschine STATUS"
