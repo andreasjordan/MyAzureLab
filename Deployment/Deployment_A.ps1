@@ -62,6 +62,10 @@ while ($true) {
     }
 }
 
+# This script decides on english text in several places: the two CredSSP tests here, and the
+# chocolatey output further down ('a reboot is required', 'Forbidden', 'Warnings:',
+# 'Chocolatey installed x/y packages'). All lab images are english, so that is fine, but it
+# would have to be reworked for a localized windows.
 if ($credSSP[1] -match 'This computer is not configured to receive credentials') {
     try {
         Send-Status -Message 'Starting to setup CredSSP'
