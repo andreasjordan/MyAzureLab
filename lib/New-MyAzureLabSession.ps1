@@ -18,6 +18,7 @@ function New-MyAzureLabSession {
             Credential     = $Credential
             SessionOption  = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
             Authentication = "Negotiate"
+            ErrorAction    = 'Stop'
         }
     } elseif ($vm.OSProfile.LinuxConfiguration) {
         $vmIsLinux = $true
@@ -25,6 +26,7 @@ function New-MyAzureLabSession {
             ComputerName = $ipAddress
             Credential   = $Credential
             AcceptKey    = $true
+            ErrorAction  = 'Stop'
         }
     } else {
         Stop-PSFFunction -Message "Unknown operating system for computer name $ComputerName" -EnableException $EnableException
@@ -32,6 +34,7 @@ function New-MyAzureLabSession {
     }
 
     $waitUntil = (Get-Date).AddSeconds($Timeout)
+    $sessionCreated = $false
 
     Write-PSFMessage -Level Verbose -Message 'Creating Session'
     while ((Get-Date) -lt $waitUntil) {
@@ -41,6 +44,7 @@ function New-MyAzureLabSession {
             } elseif ($vmIsLinux) {
                 New-SSHSession @sshSessionParam
             }
+            $sessionCreated = $true
             break
         } catch {
             $lastError = $_
@@ -48,7 +52,9 @@ function New-MyAzureLabSession {
             Start-Sleep -Seconds 15
         }
     }
-    if ((Get-Date) -ge $waitUntil) {
+    # Do not test the time here: creating the session can succeed on an attempt that started
+    # just before $waitUntil, and we would then report a failure for a session we just created
+    if (-not $sessionCreated) {
         Stop-PSFFunction -Message "Operation timed out. Last error message: $lastError" -EnableException $EnableException
     }
 }
