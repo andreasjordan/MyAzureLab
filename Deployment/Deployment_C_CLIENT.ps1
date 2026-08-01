@@ -78,10 +78,19 @@ try {
         }
 
         $computerName = ([DbaInstance]$config.SQLServer.SqlInstance).ComputerName
-        $instancePath = $service.BinaryPath -replace '"(.*)\\MSSQL\\Binn.*', '$1'
+        # Do not use -replace here: it returns the input unchanged if the pattern does not
+        # match, and the result is passed straight to Remove-Item -Recurse -Force
+        if ($service.BinaryPath -notmatch '^"?(.+)\\MSSQL\\Binn\\') {
+            Send-Status -Message "Failed to uninstall SQL Server instance: cannot get the instance path out of '$($service.BinaryPath)'"
+            return
+        }
+        $instancePath = $Matches[1]
         Invoke-Command -ComputerName $computerName -ArgumentList $instancePath -Authentication Credssp -Credential $sqlAdminCredential -ScriptBlock {
             Param([string]$Path)
-            Remove-Item -Path $Path -Recurse -Force
+            # Second safety net: only remove it if it really is a folder
+            if (Test-Path -Path $Path -PathType Container) {
+                Remove-Item -Path $Path -Recurse -Force
+            }
         }
 
         Send-Status -Message 'Starting to install SQL Server instance'
