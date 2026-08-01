@@ -81,7 +81,9 @@ $vmConfig = [ordered]@{
         VMSize       = 'Standard_B2s_v2'
         Script_A     = "$deploymentRoot\Deployment_A.ps1"
         Script_B     = $null
-        Script_C     = "$deploymentRoot\Deployment_C_CLIENT.ps1"
+# SQL Server instances are currently installed by hand in this lab, see the notes in ..\init_SQLServerLab.ps1
+# To enable the automatic installation again, uncomment this line and the SQLServer block below
+#        Script_C     = "$deploymentRoot\Deployment_C_CLIENT.ps1"
         Status       = $statusConfig
         Domain       = $domainConfig
         Packages     = @(

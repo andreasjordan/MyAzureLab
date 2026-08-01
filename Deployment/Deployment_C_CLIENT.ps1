@@ -33,6 +33,11 @@ function Send-Status {
 
 Send-Status -Message 'Starting deployment'
 
+if (-not $config.SQLServer.SqlInstance) {
+    Send-Status -Message 'Failed to install SQL Server instance: no SQLServer block in the configuration of this computer'
+    return
+}
+
 try {
     Send-Status -Message 'Starting to install SQL Server instance'
 
