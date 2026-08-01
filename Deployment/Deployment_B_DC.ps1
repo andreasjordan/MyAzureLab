@@ -63,6 +63,14 @@ try {
     }
     Save-File -Url 'https://raw.githubusercontent.com/andreasjordan/demos/master/dbatools/Get-CU.ps1' -Path "$sqlSourcePath\CU\Get-CU.ps1"
 
+    # Naming convention for the SQL Server machines:
+    # * A name containing a version, like SQL2019 or SQL2022, is a source machine. It is built
+    #   from an Azure SQL Server image and therefore carries the setup sources in
+    #   C:\SQLServerFull. Those are the machines we collect the sources from here.
+    # * A name containing a two digit number, like SQL01 or SQL02, is a target machine. It
+    #   either uses an Azure SQL Server image and already has an instance, or it uses a plain
+    #   Windows image and gets its instances installed from the sources collected here.
+    # So the filter below is on purpose: only source machines are of interest.
     foreach ($name in (Get-ADComputer -Filter 'Name -like "SQL20*"').Name) {
         $destination = "$sqlSourcePath\ISO\$($name.Replace('SQL', 'SQLServer'))"
         if (Test-Path -Path $destination) {

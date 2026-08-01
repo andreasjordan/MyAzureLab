@@ -55,7 +55,18 @@ Part 3  Invoke-MyAzureLabDeployment -Path Script_B   (DC only: fill file server)
 Part 4  Invoke-MyAzureLabDeployment -Path Script_C   (CLIENT/SQL: install & configure SQL Server)
 ```
 
-Between phases: `Start-Sleep -Seconds 120`, then `Wait-MyAzureLabDeploymentCompletion` polls the status API until every reporting host has posted the same final message.
+Between phases: `Start-Sleep -Seconds 120`, then `Wait-MyAzureLabDeploymentCompletion` polls the status API. It is told which machines this phase dispatched to (`-ComputerName`) and is given a snapshot taken before dispatch (`-StatusBefore`, from `Get-MyAzureLabStatus`). A machine counts as having reported once its `Time` **string** differs from the snapshot; the phase is complete when every named machine reports `Finished deployment`. Times are never parsed — the status API and the host can be in different time zones and the messages carry no UTC offset. Any message starting with `Failed` aborts the wait.
+
+### Naming convention for the SQL Server machines
+
+The name of a `SQL*` machine encodes its role, and `Deployment_B_DC.ps1` depends on this:
+
+- **A name containing a version** — `SQL2019`, `SQL2022` — is a **source** machine. It is built from an Azure SQL Server image, so it carries the setup media in `C:\SQLServerFull`. `Deployment_B_DC.ps1` finds these with `Get-ADComputer -Filter 'Name -like "SQL20*"'` and copies their media to the file server under `\\fs\Software\SQLServer\ISO`.
+- **A name containing a two-digit number** — `SQL01`, `SQL02` — is a **target** machine. It either uses an Azure SQL Server image and already has an instance, or it uses a plain Windows image and gets its instances installed from the media collected on the file server.
+
+So `SQL20*` matching nothing in a lab is not a bug — it means that lab has no source machines. Two-digit names also allow several targets of the same version (`SQLServerLab` has `SQL01` and `SQL02`, both `SQLServer2019`), which version-encoded names could not express.
+
+One consequence is still unresolved: `Deployment_C_CLIENT.ps1` derives the SQL Server version with `[int]$computerName.Replace('SQL','')`, which only works for source-style names. For a target it yields `1`, outside the `ValidateSet` of `Install-DbaInstance -Version`. If automatic installation onto targets is wanted, the version has to come from the config instead.
 
 ### The deployment mechanism (important, non-obvious)
 
