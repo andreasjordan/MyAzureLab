@@ -31,53 +31,80 @@ function Send-Status {
     }
 }
 
+function Save-File {
+    Param([string]$Url, [string]$Path)
+    if (Test-Path -Path $Path) {
+        return
+    }
+    # Download to a temporary name and rename afterwards, so that an interrupted
+    # download is not mistaken for a complete file on the next run
+    ([System.Net.WebClient]::new()).DownloadFile($Url, "$Path.part")
+    Move-Item -Path "$Path.part" -Destination $Path
+}
+
 Send-Status -Message 'Starting deployment'
 
 $sqlSourcePath = "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\Software\SQLServer"
 
-if (-not (Test-Path -Path $sqlSourcePath)) {
-    try {
-        Send-Status -Message 'Starting to fill file server with SQL Server sources'
+# Every step is tested on its own, so that an interrupted run continues where it stopped.
+# Do not test $sqlSourcePath here: it is created by the first step and would then skip
+# all the following steps on the next run.
+try {
+    Send-Status -Message 'Starting to fill file server with SQL Server sources'
 
-        $adminAccountName = "$($config.Domain.NetbiosName)\$($config.Domain.AdminName)"
-        $adminPassword = $config.Domain.AdminPassword
-        $adminCredential = [PSCredential]::new($adminAccountName, (ConvertTo-SecureString -String $adminPassword -AsPlainText -Force))
+    $adminAccountName = "$($config.Domain.NetbiosName)\$($config.Domain.AdminName)"
+    $adminPassword = $config.Domain.AdminPassword
+    $adminCredential = [PSCredential]::new($adminAccountName, (ConvertTo-SecureString -String $adminPassword -AsPlainText -Force))
 
-        $null = New-Item -Path "$sqlSourcePath\ISO" -ItemType Directory
-        $null = New-Item -Path "$sqlSourcePath\CU" -ItemType Directory
-        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/andreasjordan/demos/master/dbatools/Get-CU.ps1' -OutFile "$sqlSourcePath\CU\Get-CU.ps1"
-
-        foreach ($name in (Get-ADComputer -Filter 'Name -like "SQL20*"').Name) {
-            Send-Status -Message "Starting to fill file server with SQL Server sources from $name"
-            $session = New-PSSession -ComputerName $name -Credential $adminCredential -UseSSL -SessionOption (New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck)
-            Invoke-Command -Session $session -ScriptBlock { $null = New-SmbShare -Path C:\SQLServerFull -Name SQLServerFull }
-            $destination = "$sqlSourcePath\ISO\$($name.Replace('SQL', 'SQLServer'))"
-            $null = New-Item -Path $destination -ItemType Directory
-            Copy-Item -Path "\\$name\SQLServerFull\*" -Destination $destination -Recurse
-            $session | Remove-PSSession
-            # Not neeeded, because sources include CU
-            # if ((Get-Module -ListAvailable).Name -notcontains 'dbatools') {
-            #     Install-Module -Name dbatools
-            # }
-            # & "$sqlSourcePath\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$sqlSourcePath\CU"
+    foreach ($folder in "$sqlSourcePath\ISO", "$sqlSourcePath\CU", "$sqlSourcePath\SampleDatabases") {
+        if (-not (Test-Path -Path $folder)) {
+            $null = New-Item -Path $folder -ItemType Directory
         }
-
-        Send-Status -Message 'Starting to fill file server with SQL Server sample databases'
-        $null = New-Item -Path "$sqlSourcePath\SampleDatabases" -ItemType Directory
-        ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2022.bak', "$sqlSourcePath\SampleDatabases\AdventureWorks2022.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2019.bak', "$sqlSourcePath\SampleDatabases\AdventureWorks2019.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2017.bak', "$sqlSourcePath\SampleDatabases\AdventureWorks2017.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2016.bak', "$sqlSourcePath\SampleDatabases\AdventureWorks2016.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2014.bak', "$sqlSourcePath\SampleDatabases\AdventureWorks2014.bak")
-        ([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2012.bak', "$sqlSourcePath\SampleDatabases\AdventureWorks2012.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://github.com/Microsoft/sql-server-samples/releases/download/wide-world-importers-v1.0/WideWorldImporters-Full.bak', "$sqlSourcePath\SampleDatabases\WideWorldImporters-Full.bak")
-        #([System.Net.WebClient]::new()).DownloadFile('https://downloads.brentozar.com/StackOverflow2010.7z', "$sqlSourcePath\SampleDatabases\StackOverflow2010.7z")
-
-        Send-Status -Message 'Finished to fill file server with SQL Server sources'
-    } catch {
-        Send-Status -Message "Failed to fill file server with SQL Server sources: $_"
-        return
     }
+    Save-File -Url 'https://raw.githubusercontent.com/andreasjordan/demos/master/dbatools/Get-CU.ps1' -Path "$sqlSourcePath\CU\Get-CU.ps1"
+
+    foreach ($name in (Get-ADComputer -Filter 'Name -like "SQL20*"').Name) {
+        $destination = "$sqlSourcePath\ISO\$($name.Replace('SQL', 'SQLServer'))"
+        if (Test-Path -Path $destination) {
+            continue
+        }
+        Send-Status -Message "Starting to fill file server with SQL Server sources from $name"
+        $session = New-PSSession -ComputerName $name -Credential $adminCredential -UseSSL -SessionOption (New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck)
+        Invoke-Command -Session $session -ScriptBlock {
+            if (-not (Get-SmbShare -Name SQLServerFull -ErrorAction SilentlyContinue)) {
+                $null = New-SmbShare -Path C:\SQLServerFull -Name SQLServerFull
+            }
+        }
+        # Copy to a temporary folder and rename afterwards, so that an interrupted copy
+        # is not mistaken for a complete one on the next run
+        if (Test-Path -Path "$destination.part") {
+            Remove-Item -Path "$destination.part" -Recurse -Force
+        }
+        $null = New-Item -Path "$destination.part" -ItemType Directory
+        Copy-Item -Path "\\$name\SQLServerFull\*" -Destination "$destination.part" -Recurse
+        Rename-Item -Path "$destination.part" -NewName (Split-Path -Path $destination -Leaf)
+        $session | Remove-PSSession
+        # Not neeeded, because sources include CU
+        # if ((Get-Module -ListAvailable).Name -notcontains 'dbatools') {
+        #     Install-Module -Name dbatools
+        # }
+        # & "$sqlSourcePath\CU\Get-CU.ps1" -Version $name.Replace('SQL', '') -Path "$sqlSourcePath\CU"
+    }
+
+    Send-Status -Message 'Starting to fill file server with SQL Server sample databases'
+    Save-File -Url 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2022.bak' -Path "$sqlSourcePath\SampleDatabases\AdventureWorks2022.bak"
+    #Save-File -Url 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2019.bak' -Path "$sqlSourcePath\SampleDatabases\AdventureWorks2019.bak"
+    #Save-File -Url 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2017.bak' -Path "$sqlSourcePath\SampleDatabases\AdventureWorks2017.bak"
+    #Save-File -Url 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2016.bak' -Path "$sqlSourcePath\SampleDatabases\AdventureWorks2016.bak"
+    #Save-File -Url 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2014.bak' -Path "$sqlSourcePath\SampleDatabases\AdventureWorks2014.bak"
+    Save-File -Url 'https://github.com/Microsoft/sql-server-samples/releases/download/adventureworks/AdventureWorks2012.bak' -Path "$sqlSourcePath\SampleDatabases\AdventureWorks2012.bak"
+    #Save-File -Url 'https://github.com/Microsoft/sql-server-samples/releases/download/wide-world-importers-v1.0/WideWorldImporters-Full.bak' -Path "$sqlSourcePath\SampleDatabases\WideWorldImporters-Full.bak"
+    #Save-File -Url 'https://downloads.brentozar.com/StackOverflow2010.7z' -Path "$sqlSourcePath\SampleDatabases\StackOverflow2010.7z"
+
+    Send-Status -Message 'Finished to fill file server with SQL Server sources'
+} catch {
+    Send-Status -Message "Failed to fill file server with SQL Server sources: $_"
+    return
 }
 
 try {

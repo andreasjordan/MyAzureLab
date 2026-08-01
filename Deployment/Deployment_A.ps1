@@ -31,6 +31,17 @@ function Send-Status {
     }
 }
 
+function Save-File {
+    Param([string]$Url, [string]$Path)
+    if (Test-Path -Path $Path) {
+        return
+    }
+    # Download to a temporary name and rename afterwards, so that an interrupted
+    # download is not mistaken for a complete file on the next run
+    ([System.Net.WebClient]::new()).DownloadFile($Url, "$Path.part")
+    Move-Item -Path "$Path.part" -Destination $Path
+}
+
 Send-Status -Message 'Starting deployment'
 
 if ((Get-WSManCredSSP)[1] -match 'This computer is not configured to receive credentials') {
@@ -362,24 +373,37 @@ if ($env:COMPUTERNAME -eq 'DC') {
         }
     }
     
-    if ($config.FileServer.DriveLetter -and -not (Test-Path -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)")) {
+    # Every step is tested on its own, so that an interrupted run continues where it stopped.
+    # Do not test the base folder here: it is created by the first share and would then skip
+    # all the following steps on the next run.
+    if ($config.FileServer.DriveLetter) {
         try {
             Send-Status -Message 'Starting to create file server'
-    
+
+            $fileServerPath = "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)"
+
             foreach ($share in $config.FileServer.Shares) {
-                $null = New-Item -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($share.Folder)" -ItemType Directory
-                $null = New-SmbShare -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($share.Folder)" -Name $($share.Name) -FullAccess $share.FullAccess -ChangeAccess $share.ChangeAccess
+                $sharePath = "$fileServerPath\$($share.Folder)"
+                if (-not (Test-Path -Path $sharePath)) {
+                    $null = New-Item -Path $sharePath -ItemType Directory
+                }
+                if (-not (Get-SmbShare -Name $share.Name -ErrorAction SilentlyContinue)) {
+                    $null = New-SmbShare -Path $sharePath -Name $share.Name -FullAccess $share.FullAccess -ChangeAccess $share.ChangeAccess
+                }
             }
 
             foreach ($download in $config.FileServer.Downloads) {
-                if (-not (Test-Path -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($download.Folder)")) {
-                    $null = New-Item -Path "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($download.Folder)" -ItemType Directory
+                $downloadPath = "$fileServerPath\$($download.Folder)"
+                if (-not (Test-Path -Path $downloadPath)) {
+                    $null = New-Item -Path $downloadPath -ItemType Directory
                 }
-                ([System.Net.WebClient]::new()).DownloadFile($download.Url, "$($config.FileServer.DriveLetter):\$($config.FileServer.BaseFolder)\$($download.Folder)\$($download.File)")
+                Save-File -Url $download.Url -Path "$downloadPath\$($download.File)"
             }
 
-            Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $config.Domain.Name -HostNameAlias "dc.$($config.Domain.Name)" -Name fs
-            
+            if (-not (Get-DnsServerResourceRecord -ComputerName dc -ZoneName $config.Domain.Name -Name fs -RRType CName -ErrorAction SilentlyContinue)) {
+                Add-DnsServerResourceRecordCName -ComputerName dc -ZoneName $config.Domain.Name -HostNameAlias "dc.$($config.Domain.Name)" -Name fs
+            }
+
             Send-Status -Message 'Finished to create file server'
         } catch {
             Send-Status -Message "Failed to create file server: $_"
