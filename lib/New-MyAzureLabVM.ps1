@@ -269,6 +269,10 @@ function New-MyAzureLabVM {
                     [System.Threading.Thread]::CurrentThread.CurrentUICulture = 'en-US'
                     $null = Install-PackageProvider -Name NuGet -Force
                     $url = "https://github.com/AutomatedLab/AutomatedLab/releases/download/5.61.0/AutomatedLab.msi"
+                    # C:\Temp may not exist on a fresh Windows Server installation
+                    if (-not (Test-Path -Path C:\Temp)) {
+                        $null = New-Item -Path C:\Temp -ItemType Directory
+                    }
                     $msi = "C:\Temp\AutomatedLab.msi"
                     $log = "C:\Temp\AutomatedLab.log"
                     Invoke-WebRequest -Uri $url -OutFile $msi -UseBasicParsing
