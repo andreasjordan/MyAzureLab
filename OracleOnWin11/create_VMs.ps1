@@ -35,7 +35,7 @@ Write-PSFMessage -Level Host -Message 'Part 2: Setting up the active directory d
 # Creating AD users on domain controller
 # Setting up file server on domain controller
 
-$partStartedAt = ([datetime]::Now).ToUniversalTime()
+$partStartedAt = [datetime]::Now
 foreach ($computerName in $vmConfig.Keys) {
     Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
     Send-MyAzureLabStatus -Message "Configuring virtual maschine $computerName"

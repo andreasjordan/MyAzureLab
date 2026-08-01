@@ -34,7 +34,7 @@ Write-PSFMessage -Level Host -Message 'Part 2: Setting up the active directory d
 # Creating AD users on domain controller
 # Setting up file server on domain controller
 
-$partStartedAt = ([datetime]::Now).ToUniversalTime()
+$partStartedAt = [datetime]::Now
 foreach ($computerName in $vmConfig.Keys) {
     Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
     Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_A -Config $vmConfig.$computerName -EnableException
@@ -50,7 +50,7 @@ Write-PSFMessage -Level Host -Message 'Part 3: Setting up SQL Server resources'
 
 # Filling file server with sql server sources
 
-$partStartedAt = ([datetime]::Now).ToUniversalTime()
+$partStartedAt = [datetime]::Now
 foreach ($computerName in $vmConfig.Keys) {
     if ($vmConfig.$computerName.Script_B) {
         Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"
@@ -66,7 +66,7 @@ Wait-MyAzureLabDeploymentCompletion -OnlyStatusAfter $partStartedAt -EnableExcep
 Write-PSFMessage -Level Host -Message 'Part 4: Setting up SQL Server instances'
 ##########
 
-$partStartedAt = ([datetime]::Now).ToUniversalTime()
+$partStartedAt = [datetime]::Now
 foreach ($computerName in $vmConfig.Keys) {
     if ($vmConfig.$computerName.Script_C) {
         Write-PSFMessage -Level Host -Message "Configuring virtual maschine $computerName"

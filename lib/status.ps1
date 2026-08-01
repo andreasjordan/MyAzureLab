@@ -23,7 +23,9 @@ while (1) {
                 $status[$data.IP] = [PSCustomObject]@{
                     Host    = $data.Host
                     Message = $data.Message
-                    Time    = [datetime]::Now.ToString('yyyy-MM-dd HH:mm:ss')
+                    # Include the utc offset, so that the client can compare the time correctly
+                    # even if this api runs in a different time zone than the client
+                    Time    = [datetime]::Now.ToString('yyyy-MM-dd HH:mm:ss zzz')
                 }
             } catch {
                 $context.Response.StatusCode = 400

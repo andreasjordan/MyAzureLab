@@ -45,9 +45,11 @@ function Invoke-MyAzureLabDeployment {
                             Action   = New-ScheduledTaskAction @scheduledTaskActionParams
                         }
                         $null = Register-ScheduledTask @scheduledTaskParams
-
-                        Start-ScheduledTask -TaskName DeploymentAtStartup
                     }
+
+                    # Always start the task, even if it already exists: a task left over from a
+                    # previous failed phase would otherwise never run the new deployment.ps1
+                    Start-ScheduledTask -TaskName DeploymentAtStartup
                 }
             } elseif ($ScriptBlock) {
                 $commandParams.ScriptBlock = $ScriptBlock

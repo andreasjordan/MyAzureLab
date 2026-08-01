@@ -33,6 +33,8 @@ if ($context) {
             $accountParams.Tenant = $Env:MyAzureTenant
         }
         $null = Connect-AzAccount @accountParams
+        # Refresh the context, as $context is used by New-MyAzureLabKeyVault to assign the Key Vault Administrator role
+        $context = Get-AzContext
     } else {
         Write-PSFMessage -Level Verbose -Message "Connected to Azure with account '$($context.Account.Id)' and subscription '$($context.Subscription.Name)' in tenant '$($context.Tenant.Id)'"
     }
@@ -51,6 +53,8 @@ if ($context) {
             $accountParams.Tenant = $Env:MyAzureTenant
         }
         $null = Connect-AzAccount @accountParams
+        # Refresh the context, as $context is used by New-MyAzureLabKeyVault to assign the Key Vault Administrator role
+        $context = Get-AzContext
     } else {
         Stop-PSFFunction -Message 'Not connected to Azure. As $Env:MyAzureAccountId and $Env:MyAzureSubscription are not set, we stop here' -EnableException $true
     }

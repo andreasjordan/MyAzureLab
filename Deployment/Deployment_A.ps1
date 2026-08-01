@@ -156,7 +156,7 @@ if (Get-Command -Name choco -ErrorAction SilentlyContinue) {
                     Copy-Item -Path 'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft SQL Server Tools*\SQL Server Management Studio*.lnk' -Destination C:\Users\Public\Desktop
                 }
 
-                if ($package -eq 'sql-server-management-studio', 'git') {
+                if ($package -in 'sql-server-management-studio', 'git') {
                     $rebootNeeded = $true
                 }
 
