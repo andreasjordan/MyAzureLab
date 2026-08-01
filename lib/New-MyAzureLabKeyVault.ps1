@@ -55,13 +55,15 @@ function New-MyAzureLabKeyVault {
             }
 
             # Waiting for secret to be ready
-            while (1) {
-                try {
-                    $null = Get-AzKeyVaultSecret -VaultName $keyVaultParam.VaultName -Name $certificateName
-                    break
-                } catch {
-                    Start-Sleep -Seconds 10
+            # Get-AzKeyVaultSecret returns nothing if the secret does not exist yet, so test the result
+            # and do not just wait for the command to no longer throw
+            $waitUntil = [datetime]::Now.AddSeconds(300)
+            while (-not (Get-AzKeyVaultSecret -VaultName $keyVaultParam.VaultName -Name $certificateName -ErrorAction SilentlyContinue)) {
+                if ([datetime]::Now -ge $waitUntil) {
+                    Stop-PSFFunction -Message "Timeout while waiting for the certificate $certificateName in key vault $($keyVaultParam.VaultName)" -EnableException $EnableException
+                    return
                 }
+                Start-Sleep -Seconds 10
             }
             
             Write-PSFMessage -Level Verbose -Message 'KeyVault is ready'

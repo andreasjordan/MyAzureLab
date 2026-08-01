@@ -267,11 +267,16 @@ if ($env:COMPUTERNAME -ne 'DC' -and (Get-WmiObject -Class Win32_ComputerSystem).
             Server     = "dc.$($config.Domain.Name)"
             Credential = [PSCredential]::new($adminAccountName, $adminPassword)
         }
+        $waitUntil = [datetime]::Now.AddMinutes(30)
         while ( $true ) {
             try {
                 Add-Computer @addComputerParams
                 break
             } catch {
+                if ([datetime]::Now -ge $waitUntil) {
+                    # Let the surrounding catch report the failure
+                    throw
+                }
                 Start-Sleep -Seconds 60
             }
         }
@@ -286,11 +291,16 @@ if ($env:COMPUTERNAME -ne 'DC' -and (Get-WmiObject -Class Win32_ComputerSystem).
 }
 
 if ($env:COMPUTERNAME -eq 'DC') {
-    while ( $true ) { 
+    $waitUntil = [datetime]::Now.AddMinutes(30)
+    while ( $true ) {
         try {
             $null = Get-ADUser -Filter *
             break
         } catch {
+            if ([datetime]::Now -ge $waitUntil) {
+                Send-Status -Message "Failed to wait for the domain to be ready: $_"
+                return
+            }
             Send-Status -Message 'Waiting for domain to be ready'
             Start-Sleep -Seconds 30
         }
@@ -380,7 +390,12 @@ if ($env:COMPUTERNAME -eq 'DC') {
 
 if ($env:COMPUTERNAME -ne 'DC') {
     foreach ($user in $config.Domain.Users) {
-        while ( $true ) { 
+        $waitUntil = [datetime]::Now.AddMinutes(30)
+        while ( $true ) {
+            if ([datetime]::Now -ge $waitUntil) {
+                Send-Status -Message "Failed to wait for the domain controller to create the user $($user.Name)"
+                return
+            }
             try {
                 $null = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().FindDomainController()
                 if ([DirectoryServices.DirectorySearcher]::new([ADSI]"LDAP://$($config.Domain.Name)", "(&(objectClass=user)(sAMAccountName=$($user.Name)))").FindOne()) {
