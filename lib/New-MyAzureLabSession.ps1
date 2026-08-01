@@ -7,10 +7,14 @@ function New-MyAzureLabSession {
         [switch]$EnableException
     )
 
-    $ipAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+    $ipAddress = Invoke-MyAzureLabRetry -Activity "Get-AzPublicIpAddress $($ComputerName)_PublicIP" -ScriptBlock {
+        (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+    }
     Write-PSFMessage -Level Verbose -Message "Using IP address $ipAddress"
 
-    $vm = Get-AzVM -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_VM"
+    $vm = Invoke-MyAzureLabRetry -Activity "Get-AzVM $($ComputerName)_VM" -ScriptBlock {
+        Get-AzVM -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_VM"
+    }
     if ($vm.OSProfile.WindowsConfiguration) {
         $vmIsWindows = $true
         $psSessionParam = @{

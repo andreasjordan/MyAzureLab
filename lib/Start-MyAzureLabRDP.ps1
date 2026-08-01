@@ -8,7 +8,9 @@ function Start-MyAzureLabRDP {
 
     process {
         try {
-            $ip = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+            $ip = Invoke-MyAzureLabRetry -Activity "Get-AzPublicIpAddress $($ComputerName)_PublicIP" -ScriptBlock {
+                (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+            }
             $user = $Credential.UserName
             $pass = $Credential.GetNetworkCredential().Password
             $null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass

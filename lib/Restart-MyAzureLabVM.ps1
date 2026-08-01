@@ -7,7 +7,9 @@ function Restart-MyAzureLabVM {
 
     process {
         try {
-            $result = Restart-AzVM -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_VM"
+            $result = Invoke-MyAzureLabRetry -Activity "Restart-AzVM $($ComputerName)_VM" -ScriptBlock {
+                Restart-AzVM -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_VM"
+            }
             if ($result.Status -ne 'Succeeded') {
                 $result | Format-Table
                 Stop-PSFFunction -Message "Restart failed: $($result.Error)" -EnableException $EnableException

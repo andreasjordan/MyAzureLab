@@ -17,13 +17,21 @@ function New-MyAzureLabVM {
 
         try {
             Write-PSFMessage -Level Verbose -Message 'Getting key vault and certificate url'
-            $keyVault = Get-AzKeyVault -ResourceGroupName $resourceGroupName -WarningAction SilentlyContinue
-            $certificateUrl = (Get-AzKeyVaultSecret -VaultName $keyVault.VaultName -Name $certificateName).Id
-    
+            $keyVault = Invoke-MyAzureLabRetry -Activity 'Get-AzKeyVault' -ScriptBlock {
+                Get-AzKeyVault -ResourceGroupName $resourceGroupName -WarningAction SilentlyContinue
+            }
+            $certificateUrl = Invoke-MyAzureLabRetry -Activity 'Get-AzKeyVaultSecret' -ScriptBlock {
+                (Get-AzKeyVaultSecret -VaultName $keyVault.VaultName -Name $certificateName).Id
+            }
+
             Write-PSFMessage -Level Verbose -Message 'Getting subnet, domain controller IP and network security group'
-            $subnet = (Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName).Subnets[0]
+            $subnet = Invoke-MyAzureLabRetry -Activity 'Get-AzVirtualNetwork' -ScriptBlock {
+                (Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName).Subnets[0]
+            }
             $dcPrivateIpAddress = $subnet.AddressPrefix[0].Split('/')[0] -replace '0$', '100'
-            $networkSecurityGroup = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName
+            $networkSecurityGroup = Invoke-MyAzureLabRetry -Activity 'Get-AzNetworkSecurityGroup' -ScriptBlock {
+                Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName
+            }
         } catch {
             Stop-PSFFunction -Message 'Failed to get information' -ErrorRecord $_ -EnableException $EnableException
             return
@@ -154,23 +162,33 @@ function New-MyAzureLabVM {
         try {
             try {
                 Write-PSFMessage -Level Verbose -Message 'Testing PublicIpAddress'
-                $publicIpAddress = Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name $publicIpAddressParam.Name
+                $publicIpAddress = Invoke-MyAzureLabRetry -Activity "Get-AzPublicIpAddress $($publicIpAddressParam.Name)" -ScriptBlock {
+                    Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name $publicIpAddressParam.Name
+                }
             } catch {
                 Write-PSFMessage -Level Verbose -Message 'Creating PublicIpAddress'
-                $publicIpAddress = New-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Location $location @publicIpAddressParam
+                $publicIpAddress = Invoke-MyAzureLabRetry -Activity "New-AzPublicIpAddress $($publicIpAddressParam.Name)" -ScriptBlock {
+                    New-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Location $location @publicIpAddressParam
+                }
             }
 
             try {
                 Write-PSFMessage -Level Verbose -Message 'Testing NetworkInterface'
-                $networkInterface = Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name $networkInterfaceParam.Name
+                $networkInterface = Invoke-MyAzureLabRetry -Activity "Get-AzNetworkInterface $($networkInterfaceParam.Name)" -ScriptBlock {
+                    Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name $networkInterfaceParam.Name
+                }
             } catch {
                 Write-PSFMessage -Level Verbose -Message 'Creating NetworkInterface'
-                $networkInterface = New-AzNetworkInterface -ResourceGroupName $resourceGroupName -Location $location @networkInterfaceParam -PublicIpAddressId $publicIpAddress.Id
+                $networkInterface = Invoke-MyAzureLabRetry -Activity "New-AzNetworkInterface $($networkInterfaceParam.Name)" -ScriptBlock {
+                    New-AzNetworkInterface -ResourceGroupName $resourceGroupName -Location $location @networkInterfaceParam -PublicIpAddressId $publicIpAddress.Id
+                }
             }
 
             try {
                 Write-PSFMessage -Level Verbose -Message 'Testing VM'
-                $null = Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmConfigParam.VMName
+                $null = Invoke-MyAzureLabRetry -Activity "Get-AzVM $($vmConfigParam.VMName)" -ScriptBlock {
+                    Get-AzVM -ResourceGroupName $resourceGroupName -Name $vmConfigParam.VMName
+                }
             } catch {
                 Write-PSFMessage -Level Verbose -Message 'Creating VMConfig'
                 $vmConfig = New-AzVMConfig @vmConfigParam
@@ -202,7 +220,9 @@ function New-MyAzureLabVM {
                 }
 
                 Write-PSFMessage -Level Verbose -Message 'Creating VM'
-                $result = New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
+                $result = Invoke-MyAzureLabRetry -Activity "New-AzVM $($vmConfigParam.VMName)" -ScriptBlock {
+                    New-AzVM -ResourceGroupName $resourceGroupName -Location $location -VM $vmConfig
+                }
                 Write-PSFMessage -Level Verbose -Message "Result: IsSuccessStatusCode = $($result.IsSuccessStatusCode), StatusCode = $($result.StatusCode), ReasonPhrase = $($result.ReasonPhrase)"
                 if (-not $result.IsSuccessStatusCode) {
                     Write-Warning -Message "Failed to create the virtual machine. Status code: $($result.StatusCode), Reason: $($result.ReasonPhrase)"

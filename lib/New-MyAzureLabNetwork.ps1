@@ -72,24 +72,34 @@ function New-MyAzureLabNetwork {
         try {
             try {
                 Write-PSFMessage -Level Verbose -Message 'Testing VirtualNetwork'
-                $null = Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Name $virtualNetworkParam.Name
+                $null = Invoke-MyAzureLabRetry -Activity "Get-AzVirtualNetwork $($virtualNetworkParam.Name)" -ScriptBlock {
+                    Get-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Name $virtualNetworkParam.Name
+                }
             } catch {
+                # New-AzVirtualNetworkSubnetConfig only builds an object in memory, no retry needed
                 Write-PSFMessage -Level Verbose -Message 'Creating VirtualNetworkSubnetConfig'
                 $virtualNetworkSubnetConfig = New-AzVirtualNetworkSubnetConfig @virtualNetworkSubnetConfigParam
                 Write-PSFMessage -Level Verbose -Message 'Creating VirtualNetwork'
-                $null = New-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Location $location @virtualNetworkParam -Subnet $virtualNetworkSubnetConfig
+                $null = Invoke-MyAzureLabRetry -Activity "New-AzVirtualNetwork $($virtualNetworkParam.Name)" -ScriptBlock {
+                    New-AzVirtualNetwork -ResourceGroupName $resourceGroupName -Location $location @virtualNetworkParam -Subnet $virtualNetworkSubnetConfig
+                }
             }
 
             try {
                 Write-PSFMessage -Level Verbose -Message 'Testing NetworkSecurityGroup'
-                $null = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name $networkSecurityGroupParam.Name
+                $null = Invoke-MyAzureLabRetry -Activity "Get-AzNetworkSecurityGroup $($networkSecurityGroupParam.Name)" -ScriptBlock {
+                    Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name $networkSecurityGroupParam.Name
+                }
             } catch {
+                # New-AzNetworkSecurityRuleConfig only builds objects in memory, no retry needed
                 Write-PSFMessage -Level Verbose -Message 'Creating NetworkSecurityRuleConfig for SecurityRules'
                 $securityRules = foreach ($networkSecurityRuleConfigParam in $networkSecurityRules) {
                     New-AzNetworkSecurityRuleConfig @networkSecurityRuleConfigParam
                 }
                 Write-PSFMessage -Level Verbose -Message 'Creating NetworkSecurityGroup'
-                $null = New-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Location $location @networkSecurityGroupParam -SecurityRules $securityRules
+                $null = Invoke-MyAzureLabRetry -Activity "New-AzNetworkSecurityGroup $($networkSecurityGroupParam.Name)" -ScriptBlock {
+                    New-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Location $location @networkSecurityGroupParam -SecurityRules $securityRules
+                }
             }
 
             Write-PSFMessage -Level Verbose -Message 'Network is ready'

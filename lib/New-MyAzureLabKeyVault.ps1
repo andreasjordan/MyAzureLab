@@ -31,27 +31,40 @@ function New-MyAzureLabKeyVault {
 
         try {
             Write-PSFMessage -Level Verbose -Message 'Testing assignment of Key Vault Administrator role'
-            $roleAssignment = Get-AzRoleAssignment @roleAssignmentParam
+            $roleAssignment = Invoke-MyAzureLabRetry -Activity 'Get-AzRoleAssignment' -ScriptBlock {
+                Get-AzRoleAssignment @roleAssignmentParam
+            }
             if (-not $roleAssignment) {
                 Write-PSFMessage -Level Verbose -Message 'Assigning Key Vault Administrator role'
-                $roleAssignment = New-AzRoleAssignment @roleAssignmentParam
+                $roleAssignment = Invoke-MyAzureLabRetry -Activity 'New-AzRoleAssignment' -ScriptBlock {
+                    New-AzRoleAssignment @roleAssignmentParam
+                }
             }
 
             Write-PSFMessage -Level Verbose -Message 'Testing KeyVault'
-            $keyVault = Get-AzKeyVault -ResourceGroupName $resourceGroupName
+            $keyVault = Invoke-MyAzureLabRetry -Activity 'Get-AzKeyVault' -ScriptBlock {
+                Get-AzKeyVault -ResourceGroupName $resourceGroupName
+            }
             if (-not $keyVault) {
                 Write-PSFMessage -Level Verbose -Message 'Creating KeyVault'
-                $keyVault = New-AzKeyVault @keyVaultParam
+                $keyVault = Invoke-MyAzureLabRetry -Activity 'New-AzKeyVault' -ScriptBlock {
+                    New-AzKeyVault @keyVaultParam
+                }
             } else {
                 $keyVaultParam.VaultName = $keyVault.VaultName
             }
 
             Write-PSFMessage -Level Verbose -Message 'Testing SelfSignedCertificate'
-            $certificate = Get-AzKeyVaultCertificate -VaultName $keyVaultParam.VaultName -Name $certificateName
+            $certificate = Invoke-MyAzureLabRetry -Activity 'Get-AzKeyVaultCertificate' -ScriptBlock {
+                Get-AzKeyVaultCertificate -VaultName $keyVaultParam.VaultName -Name $certificateName
+            }
             if (-not $certificate) {
+                # New-AzKeyVaultCertificatePolicy only builds an object in memory, no retry needed
                 Write-PSFMessage -Level Verbose -Message 'Creating SelfSignedCertificate'
                 $certificatePolicy = New-AzKeyVaultCertificatePolicy @certificatePolicyParams
-                $certificate = Add-AzKeyVaultCertificate -VaultName $keyVaultParam.VaultName -Name $certificateName -CertificatePolicy $certificatePolicy
+                $certificate = Invoke-MyAzureLabRetry -Activity 'Add-AzKeyVaultCertificate' -ScriptBlock {
+                    Add-AzKeyVaultCertificate -VaultName $keyVaultParam.VaultName -Name $certificateName -CertificatePolicy $certificatePolicy
+                }
             }
 
             # Waiting for secret to be ready

@@ -12,7 +12,9 @@ function Set-MyAzureLabSFTPItem {
 
     try {
         if ($ComputerName) {
-            $IPAddress = (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+            $IPAddress = Invoke-MyAzureLabRetry -Activity "Get-AzPublicIpAddress $($ComputerName)_PublicIP" -ScriptBlock {
+                (Get-AzPublicIpAddress -ResourceGroupName $resourceGroupName -Name "$($ComputerName)_PublicIP").IpAddress
+            }
             Write-PSFMessage -Level Verbose -Message "Using IP address $IPAddress"
         }
 

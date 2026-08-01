@@ -10,7 +10,9 @@ function Start-MyAzureLabResourceGroup {
         try {
             if (Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue) {
                 Write-PSFMessage -Level Host -Message "Starting VMs in resource group $resourceGroupName."
-                $vms = Get-AzVM -ResourceGroupName $resourceGroupName
+                $vms = Invoke-MyAzureLabRetry -Activity 'Get-AzVM' -ScriptBlock {
+                    Get-AzVM -ResourceGroupName $resourceGroupName
+                }
                 if ($OnlyComputerName) {
                     $onlyVMs = $OnlyComputerName | ForEach-Object { "$($_)_VM" }
                     $vms = $vms | Where-Object Name -in $onlyVMs
@@ -31,7 +33,9 @@ function Start-MyAzureLabResourceGroup {
                     $result | Format-Table
                     Stop-PSFFunction -Message "Start failed for at least one VM" -Target $result -EnableException $EnableException
                 } else {
-                    Get-AzVM -ResourceGroupName $resourceGroupName -Status | Format-Table -Property Name, PowerState
+                    Invoke-MyAzureLabRetry -Activity 'Get-AzVM -Status' -ScriptBlock {
+                        Get-AzVM -ResourceGroupName $resourceGroupName -Status
+                    } | Format-Table -Property Name, PowerState
                 }
             } else {
                 Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName does not exist."

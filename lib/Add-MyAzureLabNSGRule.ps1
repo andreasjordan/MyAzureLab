@@ -8,7 +8,9 @@ function Add-MyAzureLabNSGRule {
 
     process {
         try {
-            $priority = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup |
+            $priority = Invoke-MyAzureLabRetry -Activity 'Get-AzNetworkSecurityGroup' -ScriptBlock {
+                Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup
+            } |
                 Select-Object -ExpandProperty SecurityRules |
                 Sort-Object Priority |
                 Select-Object -Last 1 -ExpandProperty Priority
@@ -24,9 +26,11 @@ function Add-MyAzureLabNSGRule {
                 DestinationAddressPrefix = "*"
                 Access                   = "Allow"
             }
-            $null = Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup |
-                Add-AzNetworkSecurityRuleConfig @ruleConfigParams |
-                Set-AzNetworkSecurityGroup
+            $null = Invoke-MyAzureLabRetry -Activity "Add-MyAzureLabNSGRule Allow$Port" -ScriptBlock {
+                Get-AzNetworkSecurityGroup -ResourceGroupName $resourceGroupName -Name NetworkSecurityGroup |
+                    Add-AzNetworkSecurityRuleConfig @ruleConfigParams |
+                    Set-AzNetworkSecurityGroup
+            }
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
         }

@@ -20,9 +20,13 @@ function New-MyAzureLabStatusVM {
             $null = Invoke-MyAzureLabSSHCommand -ComputerName STATUS -Credential $initCredential -Command $installStatusApi -EnableException
             Restart-MyAzureLabVM -ComputerName STATUS -EnableException
             
-            $statusApiPrivateIP = (Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name "STATUS_Interface").IpConfigurations[0].PrivateIpAddress
+            $statusApiPrivateIP = Invoke-MyAzureLabRetry -Activity 'Get-AzNetworkInterface STATUS_Interface' -ScriptBlock {
+                (Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name "STATUS_Interface").IpConfigurations[0].PrivateIpAddress
+            }
             $statusConfig.Uri = "http://$statusApiPrivateIP/status"
-            $domainConfig.DCIPAddress = (Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name "DC_Interface").IpConfigurations[0].PrivateIpAddress
+            $domainConfig.DCIPAddress = Invoke-MyAzureLabRetry -Activity 'Get-AzNetworkInterface DC_Interface' -ScriptBlock {
+                (Get-AzNetworkInterface -ResourceGroupName $resourceGroupName -Name "DC_Interface").IpConfigurations[0].PrivateIpAddress
+            }
         } catch {
             Stop-PSFFunction -Message 'Failed' -ErrorRecord $_ -EnableException $EnableException
         }
