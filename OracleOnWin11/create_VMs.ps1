@@ -43,9 +43,13 @@ foreach ($computerName in $vmConfig.Keys) {
     Invoke-MyAzureLabDeployment -ComputerName $computerName -Credential $initCredential -Path $vmConfig.$computerName.Script_A -Config $vmConfig.$computerName -EnableException
     $dispatched += $computerName
 }
-Write-PSFMessage -Level Host -Message "Waiting 2 minutes"
-Start-Sleep -Seconds 120
-Wait-MyAzureLabDeploymentCompletion -ComputerName $dispatched -StatusBefore $statusBefore -EnableException
+if ($dispatched.Count -eq 0) {
+    Write-PSFMessage -Level Host -Message "No virtual maschine is configured for this part, nothing to wait for"
+} else {
+    Write-PSFMessage -Level Host -Message "Waiting 2 minutes"
+    Start-Sleep -Seconds 120
+    Wait-MyAzureLabDeploymentCompletion -ComputerName $dispatched -StatusBefore $statusBefore -EnableException
+}
 
 if (-not $Env:MyStatusURL) {
     Write-PSFMessage -Level Host -Message "Removing virtual maschine STATUS"
