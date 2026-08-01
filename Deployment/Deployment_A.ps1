@@ -44,7 +44,25 @@ function Save-File {
 
 Send-Status -Message 'Starting deployment'
 
-if ((Get-WSManCredSSP)[1] -match 'This computer is not configured to receive credentials') {
+# This script runs at startup, when winrm can still be unavailable. On a freshly promoted
+# domain controller Negotiate authentication needs kerberos, which is not ready right after
+# the reboot, and Get-WSManCredSSP then throws. Because of the ErrorActionPreference that
+# ended the whole deployment without any message, so wait until winrm answers.
+$waitUntil = [datetime]::Now.AddMinutes(15)
+while ($true) {
+    try {
+        $credSSP = Get-WSManCredSSP
+        break
+    } catch {
+        if ([datetime]::Now -ge $waitUntil) {
+            Send-Status -Message "Failed to wait for winrm to be ready: $_"
+            return
+        }
+        Start-Sleep -Seconds 30
+    }
+}
+
+if ($credSSP[1] -match 'This computer is not configured to receive credentials') {
     try {
         Send-Status -Message 'Starting to setup CredSSP'
 
@@ -57,7 +75,8 @@ if ((Get-WSManCredSSP)[1] -match 'This computer is not configured to receive cre
     }
 }
 
-if ($config.DelegateComputer -and (Get-WSManCredSSP)[0] -match 'The machine is not configured to allow delegating fresh credentials') {
+# Enabling the server role above does not change the client role, so $credSSP is still valid here
+if ($config.DelegateComputer -and $credSSP[0] -match 'The machine is not configured to allow delegating fresh credentials') {
     foreach ($computer in $config.DelegateComputer) {
         $null = Enable-WSManCredSSP -Role Client -DelegateComputer "$computer.$($config.Domain.Name)", $computer -Force
     }
