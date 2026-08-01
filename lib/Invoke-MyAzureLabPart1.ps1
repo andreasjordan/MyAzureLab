@@ -18,8 +18,9 @@ function Invoke-MyAzureLabPart1 {
 
             if (Get-AzResourceGroup -Name $resourceGroupName -ErrorAction SilentlyContinue) {
                 Write-PSFMessage -Level Host -Message "Resource group $resourceGroupName already exists."
-                if (Get-AzResource -ResourceGroupName $resourceGroupName) { 
-                    Stop-PSFFunction -Message "Resource group $resourceGroupName is not empty exists. Stopping."
+                if (Get-AzResource -ResourceGroupName $resourceGroupName) {
+                    Stop-PSFFunction -Message "Resource group $resourceGroupName is not empty. Stopping." -EnableException $EnableException
+                    return
                 }
             } else {
                 Write-PSFMessage -Level Host -Message "Creating resource group $resourceGroupName"

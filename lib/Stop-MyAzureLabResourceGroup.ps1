@@ -18,7 +18,7 @@ function Stop-MyAzureLabResourceGroup {
                 $result = Receive-Job -Job $jobs
                 if ($result.Status -ne 'Succeeded') {
                     $result | Format-Table
-                    Stop-PSFFunction -Message "Stop failed for at least one VM" -Target $result
+                    Stop-PSFFunction -Message "Stop failed for at least one VM" -Target $result -EnableException $EnableException
                 } else {
                     Get-AzVM -ResourceGroupName $resourceGroupName -Status | Format-Table -Property Name, PowerState
                 }
