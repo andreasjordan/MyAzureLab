@@ -210,19 +210,29 @@ function New-MyAzureLabVM {
                 }
             }
 
-            if ($SourceImage -match 'Ubuntu') {
+            if ($SourceImage -match 'Ubuntu|AlmaLinux') {
                 Write-PSFMessage -Level Verbose -Message 'Testing SSH connection'
+                $sshReady = $false
                 $waitUntil = [datetime]::Now.AddMinutes(5)
                 while ([datetime]::Now -lt $waitUntil) {
                     try {
                         $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential -EnableException
                         $null = $session | Remove-SSHSession
+                        $sshReady = $true
                         break
                     } catch {
+                        $lastError = $_
                         Write-PSFMessage -Level Verbose -Message "Failed: $_"
                         Start-Sleep -Seconds 10
                     }
                 }
+                if (-not $sshReady) {
+                    Stop-PSFFunction -Message "Failed to connect to $ComputerName via ssh. Last error message: $lastError" -EnableException $EnableException
+                    return
+                }
+            }
+
+            if ($SourceImage -match 'Ubuntu') {
                 Write-PSFMessage -Level Verbose -Message 'Updating packages'
                 Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo apt-get update' -EnableException
                 Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
@@ -236,18 +246,6 @@ function New-MyAzureLabVM {
                 )
                 Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command $installPwshCommand -EnableException
             } elseif ($SourceImage -match 'AlmaLinux') {
-                Write-PSFMessage -Level Verbose -Message 'Testing SSH connection'
-                $waitUntil = [datetime]::Now.AddMinutes(5)
-                while ([datetime]::Now -lt $waitUntil) {
-                    try {
-                        $session = New-MyAzureLabSSHSession -ComputerName $ComputerName -Credential $Credential -EnableException
-                        $null = $session | Remove-SSHSession
-                        break
-                    } catch {
-                        Write-PSFMessage -Level Verbose -Message "Failed: $_"
-                        Start-Sleep -Seconds 10
-                    }
-                }
                 Write-PSFMessage -Level Verbose -Message 'Updating packages'
                 Invoke-MyAzureLabSSHCommand -ComputerName $ComputerName -Credential $Credential -Command 'sudo dnf -y update' -EnableException
                 Write-PSFMessage -Level Verbose -Message 'Installing Powershell'
