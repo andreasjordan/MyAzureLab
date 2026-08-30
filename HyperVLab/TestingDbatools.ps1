@@ -14,6 +14,7 @@ $LabDomainName    = 'ordix.local'
 try {
     Import-Lab -Name $LabName -NoValidation
     Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All -Wait
+    Start-Sleep -Seconds 120
     mstsc /v:$LabNetworkBase.20
     break
 } catch {
@@ -27,7 +28,7 @@ Import-Lab -Name $LabName -NoValidation
 Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All -Wait
 mstsc /v:$LabNetworkBase.20
 
-Stop-LabVM -All
+Stop-LabVM -All ; while ((Get-VM).State -contains 'Running') { Start-Sleep -Seconds 10 }
 Remove-Lab -Name $LabName -Confirm:$false; Get-NetNat -Name $LabName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false
 
 $ip = "$LabNetworkBase.20"
