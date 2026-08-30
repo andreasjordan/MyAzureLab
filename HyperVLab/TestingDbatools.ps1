@@ -43,13 +43,9 @@ Enter-LabPSSession -ComputerName ADMIN01
 
 
 
-Import-Lab -Name $LabName -NoValidation
-Stop-LabVM -ComputerName DC, SQL01, SQL02, SQL03, SQL04, SQL05 -Wait
-Start-Sleep -Seconds 10
-Get-VMSnapshot -VMName $LabName-DC, $LabName-SQL01, $LabName-SQL02, $LabName-SQL03, $LabName-SQL04, $LabName-SQL05 -Name Level0 | Restore-VMSnapshot -Confirm:$false
-Start-LabVM -ComputerName DC -Wait
-Start-Sleep -Seconds 60
-Start-LabVM -ComputerName SQL01, SQL02, SQL03, SQL04, SQL05 -Wait
+# Snapshots were removed from this lab on purpose: the Level0 checkpoints never worked well, a
+# drifted lab is repaired in place (testing-dbatools\Reset-TestEnvironment.ps1), and the recovery
+# story for everything else is rebuilding the lab from time to time.
 
 
 
@@ -100,10 +96,15 @@ $MachineDefinition = @(
             'CaRoot'
         )
     }
+    # Memory budget: BASE is an E4s_v6 with 32GB, so the guests may claim at most ~28GB to leave
+    # the Hyper-V host its share. ADMIN01 runs the full test suites (the runner alone grows to
+    # ~6.4GB over a full run) plus SSMS, VS Code and Claude Code. SQL03/04/05 host three instances
+    # each, which is where connection timeouts under load came from on 2GB.
+    # Current total: 2 (DC) + 10 (ADMIN01) + 2 + 2 (SQL01/02) + 4 + 4 + 4 (SQL03/04/05) = 28GB.
     @{
         Name            = 'ADMIN01'
         IpAddress       = "$LabNetworkBase.20"
-        Memory          = 8GB
+        Memory          = 10GB
     }
     @{
         Name            = 'SQL01'
@@ -116,14 +117,17 @@ $MachineDefinition = @(
     @{
         Name            = 'SQL03'
         IpAddress       = "$LabNetworkBase.33"
+        Memory          = 4GB
     }
     @{
         Name            = 'SQL04'
         IpAddress       = "$LabNetworkBase.34"
+        Memory          = 4GB
     }
     @{
         Name            = 'SQL05'
         IpAddress       = "$LabNetworkBase.35"
+        Memory          = 4GB
     }
 )
 
@@ -218,6 +222,12 @@ $ChocolateyPackages = @(
     'vscode'
     'sql-server-management-studio'
     'sqlcmd'
+    # gh and jq belong to the ADMIN01 bootstrap: gh for the GitHub identity and the private
+    # claude-memory repo, jq for the JSON parsing the dbatools Claude Code hooks need.
+    # dotnet-sdk is for the C# SMO test project.
+    'gh'
+    'jq'
+    'dotnet-sdk'
 )
 
 $PowerShellModules = @(
@@ -603,11 +613,17 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
     try {
         $null = New-Item -Path C:\GitHub -ItemType Directory
 
+        git config --global user.name 'Andreas Jordan'
+        git config --global user.email 'anj@ordix.de'
+
         Set-Location -Path C:\GitHub
         git clone --quiet https://github.com/dataplat/dbatools.git
         git clone --quiet https://github.com/dataplat/appveyor-lab.git
         git clone --quiet https://github.com/andreasjordan/testing-dbatools.git
         git clone --quiet https://github.com/andreasjordan/demos.git
+        # The private repo andreasjordan/claude-memory cannot be cloned here: this lab session has
+        # no GitHub identity. It is cloned interactively after 'gh auth login' - see
+        # testing-dbatools\bootstrap_admin01.md for the complete manual bootstrap of ADMIN01.
         Copy-Item -Path C:\GitHub\appveyor-lab\* -Destination \\fs\appveyor-lab -Recurse
         $true
     } catch {
@@ -668,15 +684,6 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment varia
 
 Get-PSSession | Remove-PSSession
 
-<#
-Send-Status -Message "Creating Snapshot"
-Stop-LabVM -All
-Start-Sleep -Seconds 10
-Checkpoint-VM -Name $LabName-* -SnapshotName Level0
-Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All
-Start-Sleep -Seconds 30
-
-#>
 
 cmdkey /add:TERMSRV/192.168.3.20 /user:Admin@ordix.local /pass:P@ssw0rd
 mstsc /v:192.168.3.20
@@ -692,7 +699,11 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing instances' -Sc
         C:\GitHub\testing-dbatools\03_install_alwayson_fci.ps1
         C:\GitHub\testing-dbatools\04_install_alwayson_fci2.ps1
         C:\GitHub\testing-dbatools\05_install_remote_instances.ps1
-        C:\GitHub\testing-dbatools\06_configuring_instances.ps1
+        # SQL05 gets the same three instances with a case sensitive collation, so that case
+        # sensitive behaviour can be tested at all - see 05_install_remote_instances.ps1.
+        C:\GitHub\testing-dbatools\05_install_remote_instances.ps1 -SqlNodes SQL05 -SqlCollation SQL_Latin1_General_CP1_CS_AS
+        C:\GitHub\testing-dbatools\06_configure_instances.ps1
+        C:\GitHub\testing-dbatools\06_configure_instances.ps1 -SqlInstances SQL05\SQL2025, SQL05\SQL2022, SQL05\SQL2019 -HadrInstances @() -ServiceInstances @() -LockoutComputers SQL05
         $true
     } catch {
         Write-Warning -Message "Failed to install instances: $_"
