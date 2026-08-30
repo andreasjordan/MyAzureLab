@@ -101,11 +101,11 @@ $MachineDefinition = @(
     # the Hyper-V host its share. ADMIN01 runs the full test suites (the runner alone grows to
     # ~6.4GB over a full run) plus SSMS, VS Code and Claude Code. SQL03/04/05 host three instances
     # each, which is where connection timeouts under load came from on 2GB.
-    # Current total: 2 (DC) + 10 (ADMIN01) + 2 + 2 (SQL01/02) + 4 + 4 + 4 (SQL03/04/05) = 28GB.
+    # Current total: 2 (DC) + 12 (ADMIN01) + 2 + 2 (SQL01/02) + 3 + 3 + 3 (SQL03/04/05) = 27GB.
     @{
         Name            = 'ADMIN01'
         IpAddress       = "$LabNetworkBase.20"
-        Memory          = 10GB
+        Memory          = 12GB
     }
     @{
         Name            = 'SQL01'
@@ -118,17 +118,17 @@ $MachineDefinition = @(
     @{
         Name            = 'SQL03'
         IpAddress       = "$LabNetworkBase.33"
-        Memory          = 4GB
+        Memory          = 3GB
     }
     @{
         Name            = 'SQL04'
         IpAddress       = "$LabNetworkBase.34"
-        Memory          = 4GB
+        Memory          = 3GB
     }
     @{
         Name            = 'SQL05'
         IpAddress       = "$LabNetworkBase.35"
-        Memory          = 4GB
+        Memory          = 3GB
     }
 )
 
@@ -646,7 +646,7 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Enabling german keyboard'
         $false
     }
 }
-# The default language is still not the first one in the list. To change the keyboard layout use "LeftAlt+Shift". 
+# This change needs a reboot. To change the keyboard layout use "LeftAlt+Shift". 
 
 
 Send-Status -Message 'Disabling hardware acceleration'
