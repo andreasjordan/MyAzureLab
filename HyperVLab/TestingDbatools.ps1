@@ -684,6 +684,21 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Disabling hardware accele
 }
 
 
+Send-Status -Message 'Starting VS Code at logon'
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Starting VS Code at logon' -ScriptBlock { 
+    # VS Code opens the dbatools repo with every new RDP logon of the lab admin. Invoke-LabCommand
+    # runs as that same user, so HKCU is the right hive. A reconnect to an existing session is not
+    # a logon and starts nothing, which is fine: the window from the first logon is still there.
+    try {
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name VSCode -Value '"C:\Program Files\Microsoft VS Code\Code.exe" "C:\GitHub\dbatools"'
+        $true
+    } catch {
+        Write-Warning -Message "Failed to register VS Code autostart: $_"
+        $false
+    }
+}
+
+
 if ($env:MyStatusURL) {
     Send-Status -Message 'Setting environment variable MyStatusURL'
     Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment variable MyStatusURL' -ArgumentList $env:MyStatusURL -ScriptBlock { 
