@@ -9,7 +9,7 @@
 . .\init_HyperVLab.ps1 -Create BASE -Connect BASE
 . .\init_HyperVLab.ps1 -Start BASE -Connect BASE
 
-Stop-MyAzureLabResourceGroup
+Stop-HyperVLab
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -35,9 +35,11 @@ Show-MyAzureLabResourceGroupInfo
 
 # Configuration for the lab
 $labConfig = @{
-    LabScript            = @{
-        Name    = 'TestingDbatools.ps1'
-        Content = Get-Content -Path ".\HyperVLab\TestingDbatools.ps1" -Raw
+    LabScripts           = foreach ($name in 'install', 'start', 'stop', 'remove') {
+        @{
+            Name    = "${name}_TestingDbatools.ps1"
+            Content = Get-Content -Path ".\HyperVLab\${name}_TestingDbatools.ps1" -Raw
+        }
     }
     ISODownloads         = @(
         @{ Name = 'Windows2025'   ; URL = $Env:MyWIN2025URL ; FileName = 'WindowsServer2025_x64_EN_Eval.iso' }
@@ -53,6 +55,25 @@ $labConfig = @{
         MyLabAdminPassword = 'P@ssw0rd'
         MyLabDomainName    = 'ordix.local'
     }
+}
+
+function Stop-HyperVLab {
+    # Shuts the AutomatedLab guests inside BASE down before BASE itself is deallocated, so the
+    # guests get a clean shutdown instead of the equivalent of a pulled plug. Only worth a try
+    # while BASE is running: a session to a deallocated VM is retried for ten minutes first.
+    [CmdletBinding()]
+    Param ()
+
+    $powerState = (Get-AzVM -ResourceGroupName $resourceGroupName -Name BASE_VM -Status).Statuses | Where-Object Code -like 'PowerState/*'
+    if ($powerState.Code -eq 'PowerState/running') {
+        Write-PSFMessage -Level Host -Message 'Stopping the lab VMs on BASE'
+        Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -ScriptBlock {
+            & C:\LabScripts\stop_TestingDbatools.ps1
+        }
+    } else {
+        Write-PSFMessage -Level Host -Message "BASE is not running ($($powerState.DisplayStatus)), nothing to stop inside"
+    }
+    Stop-MyAzureLabResourceGroup
 }
 
 # Create VMs
@@ -97,7 +118,8 @@ break
 
 Start-MyAzureLabResourceGroup
 
-Stop-MyAzureLabResourceGroup
+# Stops the lab VMs inside BASE first, then deallocates BASE:
+Stop-HyperVLab
 
 Start-MyAzureLabRDP -ComputerName BASE -Credential $initCredential
 
@@ -111,33 +133,14 @@ Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -Argumen
     }
 }
 
-init.ps1:
-Import-Module -Name AutomatedLab
-Import-Lab -Name $env:MyLabName -NoValidation
-Start-LabVM -ComputerName DC -Wait
-Start-Sleep -Seconds 30
-Start-LabVM -All -Wait
-Start-Sleep -Seconds 60
-mstsc /v:$env:MyLabNetworkBase.20
-
-
-
-$RunKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$ValueName  = 'InitLabScript'
-$ScriptPath = 'C:\LabScripts\init.ps1'
-$PowerShell = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
-
-$CommandLine = "`"$PowerShell`" -NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`""
-
-$current = Get-ItemProperty -Path $RunKeyPath -Name $ValueName -ErrorAction SilentlyContinue
-if ($null -eq $current) {
-    New-ItemProperty -Path $RunKeyPath -Name $ValueName -PropertyType String -Value $CommandLine -Force | Out-Null
-    Write-Host "Created HKCU Run entry '$ValueName' -> $CommandLine"
-} elseif ($current.$ValueName -ne $CommandLine) {
-    Set-ItemProperty -Path $RunKeyPath -Name $ValueName -Value $CommandLine -Force
-    Write-Host "Updated HKCU Run entry '$ValueName' -> $CommandLine"
-} else {
-    Write-Host "HKCU Run entry '$ValueName' already set. No changes made."
+# Push the current lab scripts and the start-at-logon Run entry to an already existing BASE
+# (create_BASE.ps1 does the same for a new one):
+Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -ArgumentList $labConfig -ScriptBlock {
+    param($config)
+    foreach ($script in $config.LabScripts) {
+        Set-Content -Path "C:\LabScripts\$($script.Name)" -Value $script.Content
+    }
+    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name StartLab -Value '"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "C:\LabScripts\start_TestingDbatools.ps1"'
 }
 
 

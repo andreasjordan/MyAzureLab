@@ -98,7 +98,7 @@ Windows VMs are reached over WinRM HTTPS on 5986 with a self-signed cert from th
 
 ### Odd ones out
 
-- **`HyperVLab\`** does not follow the deployment-script pattern. It creates a single large `BASE` VM with `New-MyAzureLabVM -AutomatedLab`, which installs Hyper-V and AutomatedLab inside it; `AlwaysOn_AG.ps1` / `TestingDbatools.ps1` are AutomatedLab lab definitions that run *on* that VM, not from the host.
+- **`HyperVLab\`** does not follow the deployment-script pattern. It creates a single large `BASE` VM with `New-MyAzureLabVM -AutomatedLab`, which installs Hyper-V and AutomatedLab inside it; `AlwaysOn_AG.ps1` and the four `install_`/`start_`/`stop_`/`remove_TestingDbatools.ps1` scripts are AutomatedLab lab definitions and lifecycle scripts that run *on* that VM, not from the host.
 - **`InProgress\`** is gitignored scratch work.
 - **`lib\Invoke-MyAzureLabPart1.ps1`** is an older abstraction of Part 1 that no current `create_VMs.ps1` calls.
 

@@ -11,68 +11,11 @@ $LabAdminPassword = 'P@ssw0rd'
 $LabDomainName    = 'ordix.local'
 
 
-try {
-    Import-Lab -Name $LabName -NoValidation
-    Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All -Wait
-    # RDP answers on 3389 almost immediately, but the domain logon hangs at the login screen
-    # until Active Directory on DC answers logon requests and ADMIN01 has a secure channel to
-    # the domain. So wait for exactly that instead of sleeping blindly. The probes must not
-    # throw: an exception here would land in the outer catch and start a reinstall.
-    try {
-        Wait-LabADReady -ComputerName DC -TimeoutInMinutes 10
-        $logonReady = Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Waiting for domain logon readiness' -PassThru -ScriptBlock {
-            $deadline = [datetime]::Now.AddMinutes(5)
-            while ([datetime]::Now -lt $deadline) {
-                if ((Get-Service -Name TermService).Status -eq 'Running' -and (Test-ComputerSecureChannel)) {
-                    return $true
-                }
-                Start-Sleep -Seconds 10
-            }
-            $false
-        }
-        if (-not $logonReady) {
-            Write-Host 'ADMIN01 did not report domain logon readiness in time, trying RDP anyway...'
-        }
-    } catch {
-        Write-Host "Readiness probes failed ($_), falling back to a fixed wait"
-        Start-Sleep -Seconds 120
-    }
-    mstsc /v:$LabNetworkBase.20
-    break
-} catch {
-    Write-Host "Lab is not installed, will install now..."
-}
-
-
-<# Some commands that I use for importing, removing, stopping, starting or connecting to the lab:
-
-Import-Lab -Name $LabName -NoValidation
-Start-LabVM -ComputerName DC -Wait ; Start-LabVM -All -Wait
-mstsc /v:$LabNetworkBase.20
-
-Stop-LabVM -All ; while ((Get-VM).State -contains 'Running') { Start-Sleep -Seconds 10 }
-Remove-Lab -Name $LabName -Confirm:$false; Get-NetNat -Name $LabName -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false
-
-$ip = "$LabNetworkBase.20"
-$user = $LabAdminUser + '@' + $LabDomainName
-$pass = $LabAdminPassword
-$null = cmdkey /add:TERMSRV/$ip /user:$user /pass:$pass
-
-cmdkey /add:TERMSRV/192.168.3.20 /user:Admin@ordix.local /pass:P@ssw0rd
-mstsc /v:192.168.3.20
-
-Enter-LabPSSession -ComputerName ADMIN01
-
-
-
-
 # Snapshots were removed from this lab on purpose: the Level0 checkpoints never worked well, a
 # drifted lab is repaired in place (testing-dbatools\Reset-TestEnvironment.ps1), and the recovery
 # story for everything else is rebuilding the lab from time to time.
-
-
-
-#>
+#
+# The lab lifecycle lives in the sibling scripts start_, stop_ and remove_TestingDbatools.ps1.
 
 function Send-Status {
     Param([string]$Message)

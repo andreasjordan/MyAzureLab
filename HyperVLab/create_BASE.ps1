@@ -38,7 +38,13 @@ Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -Argumen
     if (-not (Test-Path -Path 'C:\LabScripts')) {
         $null = New-Item -Path 'C:\LabScripts' -ItemType Directory
     }
-    Set-Content -Path "C:\LabScripts\$($config.LabScript.Name)" -Value $config.LabScript.Content
+    foreach ($script in $config.LabScripts) {
+        Set-Content -Path "C:\LabScripts\$($script.Name)" -Value $script.Content
+    }
+    # Start the lab at every RDP logon. HKLM instead of HKCU so that it does not matter which
+    # profile this WinRM session runs under; BASE has only the one admin who logs on anyway.
+    # A reconnect to an existing session is not a logon and starts nothing, which is fine.
+    Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name StartLab -Value '"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "C:\LabScripts\start_TestingDbatools.ps1"'
     Import-Module -Name AutomatedLab
     foreach ($dl in $config.ISODownloads) {
         ([System.Net.WebClient]::new()).DownloadFile($dl.URL, "$labSources\ISOs\$($dl.FileName)")
@@ -66,7 +72,7 @@ Invoke-MyAzureLabCommand -ComputerName BASE -Credential $initCredential -Argumen
     param($config)
     $scheduledTaskActionParams = @{
         Execute  = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
-        Argument = "-ExecutionPolicy RemoteSigned -NonInteractive -File C:\LabScripts\$($config.LabScript.Name)"
+        Argument = "-ExecutionPolicy RemoteSigned -NonInteractive -File C:\LabScripts\install_TestingDbatools.ps1"
     }
     $scheduledTaskParams = @{
         TaskName = 'DeploymentAtStartup'
