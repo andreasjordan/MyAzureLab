@@ -586,11 +586,22 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting up CredSSP' -Scri
 
 
 Send-Status -Message 'Installing PowerShell 7 on the SQL hosts'
-# ADMIN01 gets PowerShell 7 from chocolatey. The SQL hosts get the current release from GitHub and the
-# remoting endpoint PowerShell.7, so that a test can see what pwsh does on the host of an instance - in the
-# first lab every pwsh test reached the Windows PowerShell endpoint of the host.
-$pwshRelease = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
-$pwshMsiUrl = ($pwshRelease.assets | Where-Object -Property name -Like -Value 'PowerShell-*-win-x64.msi' | Select-Object -First 1).browser_download_url
+# ADMIN01 gets PowerShell 7 from chocolatey. The SQL hosts get a release from GitHub and the remoting
+# endpoint PowerShell.7, so that a test can see what pwsh does on the host of an instance - in the first
+# lab every pwsh test reached the Windows PowerShell endpoint of the host.
+# PowerShell 7.7.0 (2026-11-10) is the first release without an MSI, it ships only zip files and an
+# msixbundle for Windows. So the hosts get the highest stable version that still has one (7.6.10 on
+# 2026-11-24). By version, not by date: the servicing releases of 7.4, 7.5 and 7.6 come out on the same day.
+$pwshReleases = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=30'
+$pwshMsi = foreach ($release in ($pwshReleases | Where-Object -Property prerelease -EQ -Value $false)) {
+    foreach ($asset in ($release.assets | Where-Object -Property name -Like -Value 'PowerShell-*-win-x64.msi')) {
+        [PSCustomObject]@{
+            Version = [version]$release.tag_name.TrimStart('v')
+            Url     = $asset.browser_download_url
+        }
+    }
+}
+$pwshMsiUrl = ($pwshMsi | Sort-Object -Property Version -Descending | Select-Object -First 1).Url
 Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03, SQL04 -ActivityName 'Installing PowerShell 7' -ArgumentList $pwshMsiUrl -ScriptBlock { 
     param($MsiUrl)
 
@@ -613,21 +624,19 @@ Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03, SQL04 -ActivityName 'Instal
         if ($msiProcess.ExitCode -ne 0) {
             throw "msiexec ended with exit code $($msiProcess.ExitCode)"
         }
-        # Registering the endpoint restarts WinRM, which would end this session. So it is registered without
-        # the restart, and the restart of the hosts below activates it.
-        $registerParams = @{
-            FilePath               = 'C:\Program Files\PowerShell\7\pwsh.exe'
-            ArgumentList           = '-NoProfile -Command "Register-PSSessionConfiguration -Name PowerShell.7 -NoServiceRestart -Force"'
-            Wait                   = $true
-            PassThru               = $true
-            NoNewWindow            = $true
-            RedirectStandardOutput = 'C:\Temp\RegisterPowerShell7.out.log'
-            RedirectStandardError  = 'C:\Temp\RegisterPowerShell7.err.log'
+        # Enable-PSRemoting registers the endpoint and then restarts WinRM, which would end this session.
+        # Register-PSSessionConfiguration -NoServiceRestart alone fails, because the WinRM plugin DLL is only
+        # put in place by Enable-PSRemoting. So Enable-PSRemoting runs as a scheduled task outside of this
+        # session, and the next step waits for it.
+        $taskParams = @{
+            TaskName = 'EnablePowerShell7Remoting'
+            Action   = New-ScheduledTaskAction -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' -Argument '-NoProfile -Command "Enable-PSRemoting -Force -SkipNetworkProfileCheck *> C:\Temp\EnablePowerShell7Remoting.log"'
+            User     = 'SYSTEM'
+            RunLevel = 'Highest'
+            Force    = $true
         }
-        $registerProcess = Start-Process @registerParams
-        if ($registerProcess.ExitCode -ne 0) {
-            throw "Registering the endpoint PowerShell.7 ended with exit code $($registerProcess.ExitCode)"
-        }
+        $null = Register-ScheduledTask @taskParams
+        Start-ScheduledTask -TaskName 'EnablePowerShell7Remoting'
         $true
     } catch {
         $message = "Installing PowerShell 7 failed: $_"
@@ -636,7 +645,34 @@ Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03, SQL04 -ActivityName 'Instal
         $false
     }
 }
-Restart-LabVM -ComputerName SQL01, SQL02, SQL03, SQL04 -Wait
+Start-Sleep -Seconds 60
+Get-PSSession | Remove-PSSession
+Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03, SQL04 -ActivityName 'Checking PowerShell 7 remoting' -ScriptBlock { 
+    $logPath = 'C:\Temp\InstallPowerShell7.log'
+
+    $ErrorActionPreference = 'Stop'
+
+    try {
+        $taskWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        while ((Get-ScheduledTask -TaskName 'EnablePowerShell7Remoting').State -eq 'Running' -and $taskWatch.Elapsed.TotalSeconds -lt 300) {
+            Start-Sleep -Seconds 5
+        }
+        $taskResult = (Get-ScheduledTaskInfo -TaskName 'EnablePowerShell7Remoting').LastTaskResult
+        Unregister-ScheduledTask -TaskName 'EnablePowerShell7Remoting' -Confirm:$false
+        if ($taskResult -ne 0) {
+            throw "Enable-PSRemoting ended with $taskResult, see C:\Temp\EnablePowerShell7Remoting.log"
+        }
+        if (-not (Get-PSSessionConfiguration -Name 'PowerShell.7' -ErrorAction SilentlyContinue)) {
+            throw 'The endpoint PowerShell.7 is missing'
+        }
+        $true
+    } catch {
+        $message = "Checking PowerShell 7 remoting failed: $_"
+        $message | Add-Content -Path $logPath
+        Write-Warning -Message $message
+        $false
+    }
+}
 
 
 Send-Status -Message 'Downloading repositories'
