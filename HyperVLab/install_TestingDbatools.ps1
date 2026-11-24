@@ -40,7 +40,11 @@ function Send-Status {
     }
 }
 
+# The DC answers the DNS queries of the lab and forwards what it does not know to these two servers (see
+# 'Setting DNS forwarders'). The first lab had no forwarders, so the DC resolved external names through the
+# root hints; that is the suspect for the "remote name could not be resolved" failures of the test runs.
 $LabDnsServer     = '1.1.1.1'
+$LabDnsServer2    = '8.8.8.8'
 
 $MachineDefinitionDefaults = @{
     OperatingSystem = 'Windows Server 2025 Standard Evaluation (Desktop Experience)'
@@ -57,6 +61,7 @@ $MachineDefinition = @(
         Name            = 'DC'
         IpAddress       = "$LabNetworkBase.10"
         DnsServer1      = $LabDnsServer
+        DnsServer2      = $LabDnsServer2
         Roles           = @(
             'RootDC'
             'CaRoot'
@@ -64,9 +69,10 @@ $MachineDefinition = @(
     }
     # Memory budget: BASE is an E4s_v6 with 32GB, so the guests may claim at most ~28GB to leave
     # the Hyper-V host its share. ADMIN01 runs the full test suites (the runner alone grows to
-    # ~6.4GB over a full run) plus SSMS, VS Code and Claude Code. SQL03/04/05 host three instances
-    # each, which is where connection timeouts under load came from on 2GB.
-    # Current total: 2 (DC) + 12 (ADMIN01) + 2 + 2 (SQL01/02) + 3 + 3 + 3 (SQL03/04/05) = 27GB.
+    # ~6.4GB over a full run) plus SSMS, VS Code and Claude Code. SQL01 to SQL04 host two or three
+    # instances each, which is where connection timeouts and memory grant timeouts under load came
+    # from on 2GB. testing-dbatools\06_configure_instances.ps1 gives every instance 768MB.
+    # Current total: 2 (DC) + 12 (ADMIN01) + 3 + 3 (SQL01/02) + 3 + 3 (SQL03/04) = 26GB.
     @{
         Name            = 'ADMIN01'
         IpAddress       = "$LabNetworkBase.20"
@@ -75,10 +81,12 @@ $MachineDefinition = @(
     @{
         Name            = 'SQL01'
         IpAddress       = "$LabNetworkBase.31"
+        Memory          = 3GB
     }
     @{
         Name            = 'SQL02'
         IpAddress       = "$LabNetworkBase.32"
+        Memory          = 3GB
     }
     @{
         Name            = 'SQL03'
@@ -88,11 +96,6 @@ $MachineDefinition = @(
     @{
         Name            = 'SQL04'
         IpAddress       = "$LabNetworkBase.34"
-        Memory          = 3GB
-    }
-    @{
-        Name            = 'SQL05'
-        IpAddress       = "$LabNetworkBase.35"
         Memory          = 3GB
     }
 )
@@ -250,6 +253,20 @@ Invoke-LabCommand -ComputerName (Get-LabVM) -ActivityName 'Disabling Firewall' -
         $true
     } catch {
         Write-Warning -Message "Failed to disable Firewall: $_"
+        $false
+    }
+}
+
+
+Send-Status -Message 'Setting DNS forwarders'
+Invoke-LabCommand -ComputerName DC -ActivityName 'Setting DNS forwarders' -ArgumentList $LabDnsServer, $LabDnsServer2 -ScriptBlock {
+    param ($DnsServer1, $DnsServer2)
+
+    try {
+        Set-DnsServerForwarder -IPAddress $DnsServer1, $DnsServer2
+        $true
+    } catch {
+        Write-Warning -Message "Failed to set DNS forwarders: $_"
         $false
     }
 }
@@ -568,6 +585,60 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting up CredSSP' -Scri
 }
 
 
+Send-Status -Message 'Installing PowerShell 7 on the SQL hosts'
+# ADMIN01 gets PowerShell 7 from chocolatey. The SQL hosts get the current release from GitHub and the
+# remoting endpoint PowerShell.7, so that a test can see what pwsh does on the host of an instance - in the
+# first lab every pwsh test reached the Windows PowerShell endpoint of the host.
+$pwshRelease = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
+$pwshMsiUrl = ($pwshRelease.assets | Where-Object -Property name -Like -Value 'PowerShell-*-win-x64.msi' | Select-Object -First 1).browser_download_url
+Invoke-LabCommand -ComputerName SQL01, SQL02, SQL03, SQL04 -ActivityName 'Installing PowerShell 7' -ArgumentList $pwshMsiUrl -ScriptBlock { 
+    param($MsiUrl)
+
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory }
+    $logPath = 'C:\Temp\InstallPowerShell7.log'
+
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+
+    try {
+        $msiPath = 'C:\Temp\PowerShell-7-win-x64.msi'
+        Invoke-WebRequest -Uri $MsiUrl -OutFile $msiPath -UseBasicParsing
+        $msiParams = @{
+            FilePath     = 'msiexec.exe'
+            ArgumentList = "/i `"$msiPath`" /quiet /norestart ADD_PATH=1 REGISTER_MANIFEST=1 USE_MU=0 ENABLE_MU=0"
+            Wait         = $true
+            PassThru     = $true
+        }
+        $msiProcess = Start-Process @msiParams
+        if ($msiProcess.ExitCode -ne 0) {
+            throw "msiexec ended with exit code $($msiProcess.ExitCode)"
+        }
+        # Registering the endpoint restarts WinRM, which would end this session. So it is registered without
+        # the restart, and the restart of the hosts below activates it.
+        $registerParams = @{
+            FilePath               = 'C:\Program Files\PowerShell\7\pwsh.exe'
+            ArgumentList           = '-NoProfile -Command "Register-PSSessionConfiguration -Name PowerShell.7 -NoServiceRestart -Force"'
+            Wait                   = $true
+            PassThru               = $true
+            NoNewWindow            = $true
+            RedirectStandardOutput = 'C:\Temp\RegisterPowerShell7.out.log'
+            RedirectStandardError  = 'C:\Temp\RegisterPowerShell7.err.log'
+        }
+        $registerProcess = Start-Process @registerParams
+        if ($registerProcess.ExitCode -ne 0) {
+            throw "Registering the endpoint PowerShell.7 ended with exit code $($registerProcess.ExitCode)"
+        }
+        $true
+    } catch {
+        $message = "Installing PowerShell 7 failed: $_"
+        $message | Add-Content -Path $logPath
+        Write-Warning -Message $message
+        $false
+    }
+}
+Restart-LabVM -ComputerName SQL01, SQL02, SQL03, SQL04 -Wait
+
+
 Send-Status -Message 'Downloading repositories'
 Get-PSSession | Remove-PSSession
 Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories' -ScriptBlock { 
@@ -594,6 +665,47 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Downloading repositories'
         $true
     } catch {
         $message = "Downloading demo repository failed: $_"
+        $message | Add-Content -Path $logPath
+        Write-Warning -Message $message
+        $false
+    }
+}
+
+
+Send-Status -Message 'Installing dbatools.library'
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing dbatools.library' -ScriptBlock { 
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory }
+    $logPath = 'C:\Temp\InstallDbatoolsLibrary.log'
+
+    $ErrorActionPreference = 'Stop'
+
+    try {
+        # The version that the dbatools repo pins, for both PowerShell editions: the gallery install of
+        # dbatools brings some version of the library, and the editions must not share one install folder.
+        $executables = @(
+            'C:\Program Files\PowerShell\7\pwsh.exe'
+            'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+        )
+        foreach ($executable in $executables) {
+            $edition = [System.IO.Path]::GetFileNameWithoutExtension($executable)
+            $installParams = @{
+                FilePath               = $executable
+                ArgumentList           = '-NoProfile -ExecutionPolicy Bypass -File C:\GitHub\dbatools\.github\scripts\install-dbatools-library.ps1'
+                Wait                   = $true
+                PassThru               = $true
+                NoNewWindow            = $true
+                RedirectStandardOutput = "C:\Temp\InstallDbatoolsLibrary.$edition.out.log"
+                RedirectStandardError  = "C:\Temp\InstallDbatoolsLibrary.$edition.err.log"
+            }
+            $installProcess = Start-Process @installParams
+            if ($installProcess.ExitCode -ne 0) {
+                throw "install-dbatools-library.ps1 in $edition ended with exit code $($installProcess.ExitCode)"
+            }
+            "install-dbatools-library.ps1 in $edition ok" | Add-Content -Path $logPath
+        }
+        $true
+    } catch {
+        $message = "Installing dbatools.library failed: $_"
         $message | Add-Content -Path $logPath
         Write-Warning -Message $message
         $false
@@ -680,11 +792,8 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing instances' -Sc
         C:\GitHub\testing-dbatools\03_install_alwayson_fci.ps1
         C:\GitHub\testing-dbatools\04_install_alwayson_fci2.ps1
         C:\GitHub\testing-dbatools\05_install_remote_instances.ps1
-        # SQL05 gets the same three instances with a case sensitive collation, so that case
-        # sensitive behaviour can be tested at all - see 05_install_remote_instances.ps1.
-        C:\GitHub\testing-dbatools\05_install_remote_instances.ps1 -SqlNodes SQL05 -SqlCollation SQL_Latin1_General_CP1_CS_AS
         C:\GitHub\testing-dbatools\06_configure_instances.ps1
-        C:\GitHub\testing-dbatools\06_configure_instances.ps1 -SqlInstances SQL05\SQL2025, SQL05\SQL2022, SQL05\SQL2019 -HadrInstances @() -ServiceInstances @() -LockoutComputers SQL05
+        C:\GitHub\testing-dbatools\07_configure_certificate_authority.ps1
         $true
     } catch {
         Write-Warning -Message "Failed to install instances: $_"
