@@ -67,16 +67,19 @@ $MachineDefinition = @(
             'CaRoot'
         )
     }
-    # Memory budget: BASE is an E4s_v6 with 32GB, so the guests may claim at most ~28GB to leave
-    # the Hyper-V host its share. ADMIN01 runs the full test suites (the runner alone grows to
-    # ~6.4GB over a full run) plus SSMS, VS Code and Claude Code. SQL01 to SQL04 host two or three
-    # instances each, which is where connection timeouts and memory grant timeouts under load came
-    # from on 2GB. testing-dbatools\06_configure_instances.ps1 gives every instance 768MB.
-    # Current total: 2 (DC) + 12 (ADMIN01) + 3 + 3 (SQL01/02) + 3 + 3 (SQL03/04) = 26GB.
+    # Memory budget: BASE is an E4s_v6 with 32GB, but the guests can only claim about 23.5GB: the
+    # Hyper-V host reserve and the processes on BASE (ISE, VS Code, Claude Code) take the rest.
+    # On 2026-11-24 the build with 26GB failed: with 23GB assigned, the Hyper-V Dynamic Memory
+    # Balancer reported 0.9GB available and SQL04 (3GB) could not start.
+    # ADMIN01 runs the full test suites (the runner alone grows to ~6.4GB over a full run) plus
+    # SSMS, VS Code and Claude Code. SQL01 to SQL04 host two or three instances each, which is where
+    # connection timeouts and memory grant timeouts under load came from on 2GB.
+    # testing-dbatools\06_configure_instances.ps1 gives every instance 768MB.
+    # Current total: 2 (DC) + 9 (ADMIN01) + 3 + 3 (SQL01/02) + 3 + 3 (SQL03/04) = 23GB.
     @{
         Name            = 'ADMIN01'
         IpAddress       = "$LabNetworkBase.20"
-        Memory          = 12GB
+        Memory          = 9GB
     }
     @{
         Name            = 'SQL01'
@@ -197,6 +200,13 @@ $ChocolateyPackages = @(
     'gh'
     'jq'
     'dotnet-sdk'
+)
+
+# Installed for the lab admin after the chocolatey packages. Claude Code is used as the VS Code
+# extension, not as the standalone app (testing-dbatools\bootstrap_admin01.md, step 3).
+$VSCodeExtensions = @(
+    'anthropic.claude-code'
+    'ms-vscode.powershell'
 )
 
 $PowerShellModules = @(
@@ -469,22 +479,95 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing Chocolatey Pac
 
     try {
         Invoke-Expression -Command ([System.Net.WebClient]::new().DownloadString('https://chocolatey.org/install.ps1')) *>$logPath
-        $installResult = choco install $ChocolateyPackages --confirm --limitoutput --no-progress *>&1
+        # The community feed sometimes answers with 503 (2026-11-24: vscode.install failed that way and
+        # ADMIN01 had no VS Code). choco install skips the packages that are already installed, so a run
+        # with failures is simply repeated. A repeated run counts the skipped packages as not installed
+        # ("installed 1/12"), so success is judged by the "packages failed" line, not by the counts.
+        foreach ($attempt in 1..3) {
+            $installResult = choco install $ChocolateyPackages --confirm --limitoutput --no-progress *>&1
+            if (-not ($installResult -match '\d+ packages? failed')) {
+                break
+            }
+            "Attempt $attempt failed: $($installResult -match 'packages? failed')" | Add-Content -Path $logPath
+            $installResult | Add-Content -Path $logPath
+            if ($attempt -lt 3) {
+                Start-Sleep -Seconds 60
+            }
+        }
         if ($installResult -match 'Warnings:') {
             Write-Warning -Message 'Chocolatey generated warnings'
         }
-        $info = $installResult -match 'Chocolatey installed (\d+)/(\d+) packages' | Select-Object -First 1
-        if ($info -match 'Chocolatey installed (\d+)/(\d+) packages') {
-            if ($Matches[1] -ne $Matches[2]) {
-                Write-Warning -Message "Chocolatey only installed $($Matches[1]) of $($Matches[2]) packages"
-                $installResult | Add-Content -Path $logPath
-            }
-        } else {
+        if ($installResult -match '\d+ packages? failed') {
+            Write-Warning -Message "Chocolatey failed after 3 attempts: $($installResult -match 'packages? failed')"
+        } elseif (-not ($installResult -match 'Chocolatey installed \d+/\d+ packages')) {
             Write-Warning -Message "InstallResult: $installResult"
         }
         $true
     } catch {
         $message = "Setting up Chocolatey failed: $_"
+        $message | Add-Content -Path $logPath
+        Write-Warning -Message $message
+        $false
+    }
+}
+
+
+Send-Status -Message 'Adding Git Bash to PATH'
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Adding Git Bash to PATH' -ScriptBlock {
+    # The chocolatey package of git only puts Git\cmd on the PATH, which has no bash.exe. The Claude Code
+    # hooks of the dbatools repo are all called as "bash ...", and hooks-doctor.sh is run the same way.
+    # Git\bin only holds bash.exe, sh.exe and git.exe. Git\usr\bin stays off the PATH on purpose: its GNU
+    # whoami answers "Admin" instead of "ORDIX\Admin" and breaks tests (testing-dbatools\CLAUDE.md).
+    try {
+        $gitBin = 'C:\Program Files\Git\bin'
+        if (-not (Test-Path -Path "$gitBin\bash.exe")) {
+            throw "$gitBin\bash.exe is missing"
+        }
+        $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+        if (($machinePath -split ';') -notcontains $gitBin) {
+            [Environment]::SetEnvironmentVariable('Path', "$($machinePath.TrimEnd(';'));$gitBin", 'Machine')
+        }
+        $true
+    } catch {
+        Write-Warning -Message "Failed to add Git Bash to PATH: $_"
+        $false
+    }
+}
+
+
+Send-Status -Message 'Installing VS Code extensions'
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing VS Code extensions' -ArgumentList @(, $VSCodeExtensions) -ScriptBlock {
+    param($VSCodeExtensions)
+
+    if (-not (Test-Path -Path 'C:\Temp')) { $null = New-Item -Path 'C:\Temp' -ItemType Directory }
+    $logPath = 'C:\Temp\InstallVSCodeExtensions.log'
+
+    $ErrorActionPreference = 'Stop'
+
+    try {
+        # Invoke-LabCommand runs as the lab admin, so the extensions land in that user's profile
+        # (C:\Users\Admin.ordix\.vscode\extensions), where VS Code finds them at the first logon.
+        $code = 'C:\Program Files\Microsoft VS Code\bin\code.cmd'
+        if (-not (Test-Path -Path $code)) {
+            throw "VS Code is not installed, $code is missing"
+        }
+        foreach ($extension in $VSCodeExtensions) {
+            # cmd merges stderr into stdout: in Windows PowerShell, stderr of a native command would be
+            # turned into error records and end the try block because of ErrorActionPreference Stop.
+            cmd.exe /c "`"$code`" --install-extension $extension --force 2>&1" | Add-Content -Path $logPath
+            if ($LASTEXITCODE -ne 0) {
+                throw "code --install-extension $extension ended with exit code $LASTEXITCODE"
+            }
+        }
+        $installed = cmd.exe /c "`"$code`" --list-extensions 2>nul"
+        $missing = $VSCodeExtensions | Where-Object { $_ -notin $installed }
+        if ($missing) {
+            throw "Not installed: $($missing -join ', ')"
+        }
+        "Installed: $($VSCodeExtensions -join ', ')" | Add-Content -Path $logPath
+        $true
+    } catch {
+        $message = "Installing VS Code extensions failed: $_"
         $message | Add-Content -Path $logPath
         Write-Warning -Message $message
         $false
@@ -718,6 +801,8 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing dbatools.libra
     try {
         # The version that the dbatools repo pins, for both PowerShell editions: the gallery install of
         # dbatools brings some version of the library, and the editions must not share one install folder.
+        # -ConfigPath is passed explicitly: in Windows PowerShell 5.1 $PSScriptRoot is empty in the default
+        # value of the script's ConfigPath parameter, so Join-Path failed there (2026-11-24).
         $executables = @(
             'C:\Program Files\PowerShell\7\pwsh.exe'
             'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -726,7 +811,7 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Installing dbatools.libra
             $edition = [System.IO.Path]::GetFileNameWithoutExtension($executable)
             $installParams = @{
                 FilePath               = $executable
-                ArgumentList           = '-NoProfile -ExecutionPolicy Bypass -File C:\GitHub\dbatools\.github\scripts\install-dbatools-library.ps1'
+                ArgumentList           = '-NoProfile -ExecutionPolicy Bypass -File C:\GitHub\dbatools\.github\scripts\install-dbatools-library.ps1 -ConfigPath C:\GitHub\dbatools\.github\dbatools-library-version.json'
                 Wait                   = $true
                 PassThru               = $true
                 NoNewWindow            = $true
