@@ -875,6 +875,27 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Starting VS Code at logon
 }
 
 
+Send-Status -Message "Blocking smart card redirection"
+Invoke-LabCommand -ComputerName ADMIN01 -ActivityName "Blocking smart card redirection" -ScriptBlock {
+    # Remote Desktop forwards the smart cards of the client into the session, Windows Hello for Business included, and
+    # the Certificate Propagation service copies their certificates into CurrentUser\My of the lab admin. Whatever opens
+    # the key of such a certificate gets a PIN prompt in the session, and an unattended test run waits for it forever
+    # (Add-DbaComputerCertificate.Tests.ps1 did, 2026-11-24). This is the policy "Do not allow smart card device
+    # redirection"; it takes effect with the next Remote Desktop connection.
+    try {
+        $policyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+        if (-not (Test-Path -Path $policyPath)) {
+            $null = New-Item -Path $policyPath -Force
+        }
+        $null = New-ItemProperty -Path $policyPath -Name fEnableSmartCard -PropertyType DWord -Value 0 -Force
+        $true
+    } catch {
+        Write-Warning -Message "Failed to block smart card redirection: $_"
+        $false
+    }
+}
+
+
 if ($env:MyStatusURL) {
     Send-Status -Message 'Setting environment variable MyStatusURL'
     Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment variable MyStatusURL' -ArgumentList $env:MyStatusURL -ScriptBlock { 
