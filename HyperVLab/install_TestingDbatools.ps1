@@ -881,7 +881,8 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName "Blocking smart card redir
     # the Certificate Propagation service copies their certificates into CurrentUser\My of the lab admin. Whatever opens
     # the key of such a certificate gets a PIN prompt in the session, and an unattended test run waits for it forever
     # (Add-DbaComputerCertificate.Tests.ps1 did, 2026-11-24). This is the policy "Do not allow smart card device
-    # redirection"; it takes effect with the next Remote Desktop connection.
+    # redirection". The Remote Desktop service reads it only when it starts - neither this registry write nor a gpupdate
+    # reaches the running service (2026-11-25) - so ADMIN01 restarts before the first Remote Desktop connection below.
     try {
         $policyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
         if (-not (Test-Path -Path $policyPath)) {
@@ -915,6 +916,13 @@ Invoke-LabCommand -ComputerName ADMIN01 -ActivityName 'Setting environment varia
      [Environment]::SetEnvironmentVariable('MyConfigFilename', $args[0], 'Machine')
      $true
 }
+
+
+Send-Status -Message "Restarting ADMIN01"
+# The Remote Desktop service reads the smart card policy of "Blocking smart card redirection" only when it starts, so
+# this restart has to come before the first Remote Desktop connection.
+Restart-LabVM -ComputerName ADMIN01 -Wait
+Start-Sleep -Seconds 30
 
 
 Get-PSSession | Remove-PSSession
